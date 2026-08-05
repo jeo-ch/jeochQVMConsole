@@ -93,7 +93,8 @@ func ListVMStorageTargets(isAdmin bool) ([]VMStorageTarget, error) {
 }
 
 func readLSBLKDevices() ([]lsblkDevice, error) {
-	result := utils.ExecCommand("lsblk", "-J", "-b", "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,FSVER,LABEL,UUID,MOUNTPOINTS,MODEL,SERIAL,ROTA,RM,RO,TRAN,PKNAME")
+	// MOUNTPOINTS 需 util-linux>=2.37，旧版（麒麟 V10 等）用 MOUNTPOINT，按版本动态选列
+	result := utils.ExecCommand("lsblk", "-J", "-b", "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,FSVER,LABEL,UUID,"+utils.LsblkMountpointsColumn()+",MODEL,SERIAL,ROTA,RM,RO,TRAN,PKNAME")
 	if result.Error != nil {
 		return nil, fmt.Errorf("读取宿主机硬盘列表失败: %s", result.Stderr)
 	}

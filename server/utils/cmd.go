@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -369,6 +370,48 @@ func ShellSingleQuote(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+var lsblkMountpointsColumnVal = ""
+
+// LsblkMountpointsColumn 返回 lsblk 挂载点列名。
+// util-linux >= 2.37 提供 MOUNTPOINTS（数组型），旧版（麒麟 V10 util-linux 2.33 等）仅支持 MOUNTPOINT（单数），
+// 直接用 MOUNTPOINTS 会报 "lsblk: unknown column: MOUNTPOINTS"。按版本动态选择，结果缓存。
+func LsblkMountpointsColumn() string {
+	if lsblkMountpointsColumnVal != "" {
+		return lsblkMountpointsColumnVal
+	}
+	col := "MOUNTPOINT"
+	res := ExecCommand("lsblk", "--version")
+	if res.Error == nil {
+		ver := strings.TrimSpace(res.Stdout)
+		// 形如: lsblk from util-linux 2.37.2
+		if i := strings.Index(ver, "util-linux"); i >= 0 {
+			fields := strings.Fields(ver[i+len("util-linux"):])
+			if len(fields) > 0 && versionAtLeast(fields[0], "2.37") {
+				col = "MOUNTPOINTS"
+			}
+		}
+	}
+	lsblkMountpointsColumnVal = col
+	return col
+}
+
+// versionAtLeast 比较 "a.b.c" 版本是否 >= "min"，点分数字逐段比较。
+func versionAtLeast(v, min string) bool {
+	vParts := strings.Split(strings.TrimSpace(v), ".")
+	minParts := strings.Split(strings.TrimSpace(min), ".")
+	for i := 0; i < len(minParts); i++ {
+		vp, mp := 0, 0
+		if i < len(vParts) {
+			vp, _ = strconv.Atoi(vParts[i])
+		}
+		mp, _ = strconv.Atoi(minParts[i])
+		if vp != mp {
+			return vp > mp
+		}
+	}
+	return true
 }
 
 // truncate 截断字符串到指定长度，超过部分用 "..." 替代

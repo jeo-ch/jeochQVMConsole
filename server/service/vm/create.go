@@ -78,9 +78,19 @@ type OSVariantInfo struct {
 	Category string `json:"category"` // 分类: Linux/Windows/Other
 }
 
-// ListOSVariants 获取可用的系统变体列表
+// ListOSVariants 获取可用的系统变体列表。
+// 优先用 libosinfo 标准命令 osinfo-query os（旧版 virt-install 如麒麟 2.2.1 不支持 --osinfo list，
+// 只支持 --osinfo list 的 virt-install 3.0+ 会 exit 2），失败再回退 virt-install --osinfo list。
 func ListOSVariants() ([]OSVariantInfo, error) {
-	result := utils.ExecShell("virt-install --osinfo list 2>/dev/null")
+	if variants, err := parseOSVariantsFromCommand("osinfo-query os 2>/dev/null"); err == nil && len(variants) > 0 {
+		return variants, nil
+	}
+	return parseOSVariantsFromCommand("virt-install --osinfo list 2>/dev/null")
+}
+
+// parseOSVariantsFromCommand 执行命令并解析系统变体列表，兼容 osinfo-query 表头与 virt-install 别名两种格式。
+func parseOSVariantsFromCommand(cmd string) ([]OSVariantInfo, error) {
+	result := utils.ExecShell(cmd)
 	if result.Error != nil {
 		return nil, fmt.Errorf("获取系统变体列表失败: %w", result.Error)
 	}
@@ -93,6 +103,10 @@ func ListOSVariants() ([]OSVariantInfo, error) {
 		if line == "" {
 			continue
 		}
+		// osinfo-query os 首行表头形如 "Short-ID,Name,Version,..."，须跳过
+		if strings.Contains(line, "Short-ID") {
+			continue
+		}
 
 		// 可能有别名，如 "ubuntu24.04, ubuntunoble"
 		parts := strings.SplitN(line, ",", 2)
@@ -102,38 +116,33 @@ func ListOSVariants() ([]OSVariantInfo, error) {
 			name = fmt.Sprintf("%s (%s)", id, strings.TrimSpace(parts[1]))
 		}
 
-		// 分类
-		category := "Other"
-		idLower := strings.ToLower(id)
-		if strings.HasPrefix(idLower, "win") {
-			category = "Windows"
-		} else if strings.HasPrefix(idLower, "ubuntu") ||
-			strings.HasPrefix(idLower, "debian") ||
-			strings.HasPrefix(idLower, "centos") ||
-			strings.HasPrefix(idLower, "fedora") ||
-			strings.HasPrefix(idLower, "rhel") ||
-			strings.HasPrefix(idLower, "alma") ||
-			strings.HasPrefix(idLower, "rocky") ||
-			strings.HasPrefix(idLower, "opensuse") ||
-			strings.HasPrefix(idLower, "sles") ||
-			strings.HasPrefix(idLower, "archlinux") ||
-			strings.HasPrefix(idLower, "gentoo") ||
-			strings.HasPrefix(idLower, "alpine") ||
-			strings.HasPrefix(idLower, "freebsd") ||
-			strings.HasPrefix(idLower, "openbsd") ||
-			strings.HasPrefix(idLower, "linux") ||
-			strings.HasPrefix(idLower, "generic") {
-			category = "Linux"
-		}
-
 		variants = append(variants, OSVariantInfo{
 			ID:       id,
 			Name:     name,
-			Category: category,
+			Category: categorizeOSVariant(id),
 		})
 	}
 
 	return variants, nil
+}
+
+// categorizeOSVariant 根据变体 ID 判断系统分类（Linux/Windows/Other）。
+func categorizeOSVariant(id string) string {
+	category := "Other"
+	idLower := strings.ToLower(id)
+	if strings.HasPrefix(idLower, "win") {
+		return "Windows"
+	}
+	for _, p := range []string{
+		"ubuntu", "debian", "centos", "fedora", "rhel", "alma", "rocky",
+		"opensuse", "sles", "archlinux", "gentoo", "alpine", "freebsd",
+		"openbsd", "linux", "generic",
+	} {
+		if strings.HasPrefix(idLower, p) {
+			return "Linux"
+		}
+	}
+	return category
 }
 
 // ListISOs 列出可用的 ISO 镜像（读取系统设置中的全局 ISO 目录）

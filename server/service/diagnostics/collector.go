@@ -300,7 +300,7 @@ func collectStorage(rootDir string, zw *zip.Writer) collectResult {
 	prefix := rootDir + "storage/"
 	r := collectResult{Category: "storage", Success: true}
 
-	runCmd(prefix+"lsblk.txt", zw, "lsblk", "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,SERIAL")
+	runCmd(prefix+"lsblk.txt", zw, "lsblk", "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,"+utils.LsblkMountpointsColumn()+",MODEL,SERIAL")
 	runCmd(prefix+"lvm-vgs.txt", zw, "vgs", "--units", "g")
 	runCmd(prefix+"lvm-lvs.txt", zw, "lvs", "--units", "g")
 	runCmd(prefix+"lvm-pvs.txt", zw, "pvs", "--units", "g")

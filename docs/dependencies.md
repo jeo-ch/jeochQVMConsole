@@ -6,6 +6,7 @@
 |--------|------|------|----------|
 | dmidecode | `dmidecode -t memory` | 读取宿主机内存条（DIMM）SMBIOS 信息，供概览页内存卡片「硬件详情」展开区展示 | `server/service/host/hardware.go` |
 | qemu-utils（既有依赖） | `qemu-img info/convert` | 检查导入磁盘格式、将 OVF/OVA 包内磁盘转换为 QCOW2、将 OVA 导出磁盘转换为 streamOptimized VMDK | `server/service/vm/vmimport/`、`server/service/vm/export.go` |
+| swtpm（既有依赖） | `swtpm` | libvirt 软件 TPM 后端，UEFI 安全启动模版（含 `<tpm>`）启动必需；openEuler/麒麟 SELinux Enforcing 下需 `restorecon /usr/bin/swtpm` 打标 | `install.sh` 依赖安装 + SELinux 配置步骤 |
 
 ## Linux 来宾磁盘自动化依赖
 

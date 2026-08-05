@@ -161,6 +161,10 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 
 	cloneDisk := filepath.Join(cloneDir, params.Name+".qcow2")
 
+	// SELinux Enforcing 下，模板/克隆磁盘目录若被 mv/替换保留 usr_t 等源上下文，
+	// libvirt 启动时 relabel 会报 Operation not permitted。此处按 fcontext 幂等打标。
+	utils.EnsureSELinuxLabel(templateDir, cloneDir)
+
 	// 预检查：目录可写性和存储空间
 	if err := D.CheckDirWritable(filepath.Dir(cloneDisk)); err != nil {
 		return nil, fmt.Errorf("克隆磁盘存储目录不可用: %w", err)

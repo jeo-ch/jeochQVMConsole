@@ -191,6 +191,7 @@ APT_DEPS=(
     "parted"
     "dmidecode"
     "psmisc"
+    "swtpm"
 )
 
 # 架构特有依赖：在 check_and_install_deps 中根据 $ARCH 动态追加
@@ -242,6 +243,7 @@ RPM_PKG_MAP=(
     ["parted"]="parted"
     ["dmidecode"]="dmidecode"
     ["psmisc"]="psmisc"
+    ["swtpm"]="swtpm"
 )
 
 # RPM 系架构特有包名（openEuler 官方文档确认）
@@ -1824,6 +1826,11 @@ setup_selinux() {
         setsebool -P "$bool" on 2>/dev/null && success "setsebool ${bool} on" || \
             warn "setsebool ${bool} 失败（可忽略，未安装 SELinux 策略包或布尔值不存在）"
     done
+
+    # swtpm（软件 TPM）：UEFI 安全启动模版需要 libvirt 调用 swtpm。
+    # openEuler/麒麟 SELinux Enforcing 下若 swtpm 二进制安全上下文缺失/错误会报
+    # "applying Failed to execute binary /usr/bin/swtpm: Permission denied"，恢复其可执行标签。
+    restorecon -R /usr/bin/swtpm 2>/dev/null || true
 
     # 面板自定义存储目录（模板/克隆/ISO/用户存储）需 QEMU 可读写
     load_env_file

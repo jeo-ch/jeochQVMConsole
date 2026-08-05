@@ -103,6 +103,10 @@ func CloneVM(ctx context.Context, params *CloneParams, progressFn func(int, stri
 
 	cloneDisk := filepath.Join(cloneDir, params.Name+".qcow2")
 
+	// SELinux Enforcing 下，模板目录若被 mv/替换保留 usr_t 等源上下文，
+	// libvirt 启动 VM 时 relabel 报 Operation not permitted，此处按 fcontext 幂等打标。
+	utils.EnsureSELinuxLabel(templateDir, cloneDir)
+
 	// 从模板元数据获取类型和凭据
 	meta := D.GetTemplateMeta(params.Template)
 	if params.DiskBus == "" && meta.DefaultConfig != nil && strings.TrimSpace(meta.DefaultConfig.DiskBus) != "" {
