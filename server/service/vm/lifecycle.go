@@ -3,6 +3,8 @@ package vm
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +14,36 @@ import (
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
+
+// diskSourceFileRe 匹配 VM XML 中所有磁盘 <source file='...'>（含 backingStore）。
+var diskSourceFileRe = regexp.MustCompile(`<source[^>]*file='([^']+)'`)
+
+// ensureVMSELinuxImageLabels 在 SELinux Enforcing 下，对 VM 定义中所有磁盘镜像
+// 文件（含 backing 模板）的父目录做 restorecon。libvirt 启动时若发现 backing
+// 文件为 usr_t 等源上下文会尝试 relabel，无权限时报 "Operation not permitted"，
+// 此处在启动前按 fcontext 幂等打标兜底。
+func ensureVMSELinuxImageLabels(name string) {
+	vmXML, err := libvirt_rpc.GetDomainXMLRPC(name, 0)
+	if err != nil {
+		xmlRes := utils.ExecCommand("virsh", "dumpxml", name)
+		if xmlRes.Error != nil {
+			return
+		}
+		vmXML = xmlRes.Stdout
+	}
+	var dirs []string
+	seen := map[string]bool{}
+	for _, m := range diskSourceFileRe.FindAllStringSubmatch(vmXML, -1) {
+		p := filepath.Dir(m[1])
+		if !seen[p] {
+			seen[p] = true
+			dirs = append(dirs, p)
+		}
+	}
+	if len(dirs) > 0 {
+		utils.EnsureSELinuxLabel(dirs...)
+	}
+}
 
 // ==================== 虚拟机生命周期操作 ====================
 
@@ -107,6 +139,8 @@ func startVM(name string, fixOnReboot bool) error {
 
 	// 启动前清理不完整的 backingStore XML（防止 AppArmor 拦截 backing chain 访问）
 	fixBackingStoreXML(name)
+	// SELinux Enforcing 下对磁盘/backing 镜像打标兜底（模板文件可能为 usr_t）
+	ensureVMSELinuxImageLabels(name)
 	if err := memory.ApplyPendingVMMemoryConfig(name); err != nil {
 		return fmt.Errorf("应用动态内存待迁移配置失败: %w", err)
 	}
