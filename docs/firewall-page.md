@@ -12,12 +12,16 @@
 | 页头操作 | 刷新（按当前 Tab 加载对应数据） |
 | 标签页 | 宿主机防火墙 / KVM 网络防火墙 / 连接管理；首次切到 KVM Tab 才加载其状态与策略 |
 
-### 宿主机防火墙（UFW）
+### 宿主机防火墙（后端抽象：UFW / Firewalld / none）
 
 | 功能 | 说明 |
 |------|------|
 | 状态横幅 | 已启用（青）/已关闭（橙）；开启（先预览推荐规则再确认）/关闭（高风险确认，任务队列） |
-| 运行状态卡 | UFW 可用性、入站/出站/转发默认策略、SSH 端口、面板端口、Docker 兼容说明 |
+| 运行状态卡 | 防火墙后端可用性（`backend_name`，UFW/Firewalld/不可用）、入站/出站/转发默认策略、SSH 端口、面板端口、Docker 兼容说明；后端 `error_code` 非空时展示可操作 hint + 「重新检测」按钮 |
+| none 后端 | 系统无 ufw/firewalld 时，banner 下方追加 warning Banner：宿主机防火墙不可用，端口转发仍会写入 iptables |
+| 转发默认未管理 | `default_routed` 为空时显示「未管理」Tag（Tooltip 依 `ip_backend` 区分 legacy/nf_tables 文案） |
+| 启用自检 | Enable 任务自检失败时在状态横幅下方展示失败项清单（Tag 红 + Tooltip 原因）并提供「回滚（关闭防火墙）」入口（二次确认） |
+| 组件升级提示 | 读取 `/system-info` 的 `firewall.upgrade_advice`，按优先级（firewalld_old > glibc_low > selinux）展示至多一条可关闭 Banner |
 | 规则表 | 动作/协议/端口区间/来源 CIDR/备注；保护规则（SSH、面板端口）标红且禁止编辑删除；面板管理规则置灰标签 |
 | 筛选 | 端口搜索、协议筛选（TCP/UDP）、动作筛选（允许/拒绝）、备注搜索 |
 | 规则操作 | 行内「编辑/删除」纯图标 + Tooltip（保护行禁用）；添加规则弹窗支持 TCP/UDP/TCP+UDP 与端口区间；添加 VNC 5900-5999 默认放通 |
@@ -37,7 +41,7 @@
 
 | 功能 | 说明 |
 |------|------|
-| 非防火墙端口 | 预览/关闭本地端口不在 UFW 允许规则内的 TCP 已建立连接 |
+| 非防火墙端口 | 预览/关闭本地端口不在宿主机防火墙允许规则内的 TCP 已建立连接 |
 | 全部连接 | 预览/关闭所有 TCP 已建立连接（含 SSH 与面板，二次确认中展示将关闭的连接数） |
 | 连接预览 | 协议、本地地址、对端地址、是否命中防火墙放行端口；后端返回的 warning 单独展示 |
 
@@ -69,7 +73,7 @@ web/src/views/firewall/
 - `POST /firewall/preview`：预览策略生成的 nftables 规则文本
 - `POST /firewall/apply`、`/disable`、`/rollback`：应用/禁用/回滚（高风险 428 二次验证，任务队列）
 - `POST /firewall/geoip/import`、`/geoip/update`：区域 CIDR 本地导入 / 在线更新（后者任务队列）
-- `GET /firewall/host/status`、`POST /firewall/host/enable/preview`、`/enable`、`/disable`：宿主机防火墙状态与启停（启停高风险，任务队列）
+- `GET /firewall/host/status`、`POST /firewall/host/reset-backend`、`POST /firewall/host/enable/preview`、`/enable`、`/disable`：宿主机防火墙状态与启停（reset-backend 重新探测后端；启停高风险，任务队列）
 - `POST/PUT/DELETE /firewall/host/rules[/:id]`、`POST /firewall/host/rules/vnc-default`：宿主机规则 CRUD 与 VNC 默认放通（高风险）
 - `GET /firewall/host/connections/preview`、`POST /firewall/host/connections/close`：连接预览与关闭（关闭高风险）
 
@@ -81,3 +85,5 @@ web/src/views/firewall/
 4. **VM 覆盖脏数据清理**：加载策略时自动剔除已不存在 VM 的覆盖条目，避免残留数据随保存提交（旧版仅追加不清理）。
 5. **任务后延迟刷新**：应用/禁用/回滚/启停/GeoIP 更新等任务队列操作提交后延迟 1.2s 刷新状态，与公网 IP 页策略一致（旧版不刷新）。
 6. **布局响应式**：旧版 `el-row :span` 固定分栏，新版 `Row/Col` 响应式断点（xs 24 / md 9-15 / lg 8-16、14-10），小屏自动堆叠；连接管理双操作组小屏转为纵向排列。
+7. **防火墙后端抽象**：旧版仅支持 UFW（`ufw_available` 字段），新版经 `service/firewall` 后端抽象同时支持 UFW / Firewalld / none（`backend`/`backend_name`/`ip_backend`/`error_code`），「运行状态卡」标签由「UFW」改为「防火墙后端」，none 时追加不可用 Banner；端口转发放通措辞中性化（不再写死 UFW）。
+8. **报错与自检反馈**：后端错误结构化（`error_code` + 可操作 hint，运行状态卡「重新检测」按钮触发 `POST /firewall/host/reset-backend`）；Enable 任务自检失败展示失败项清单并提供回滚入口；`/system-info` 的 `firewall.upgrade_advice` 以至多一条可关闭 Banner 提示组件升级。

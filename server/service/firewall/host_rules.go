@@ -31,6 +31,18 @@ func UpdateHostFirewallRule(id string, req HostFirewallRuleRequest) (*HostFirewa
 	if len(nextRules) == 0 {
 		return nil, fmt.Errorf("规则参数无效")
 	}
+	// 规格等价（仅备注/保护标记可能不同）：ufw/firewalld 纯端口规则不持久化备注，
+	// 直接返回避免误删规则（原实现 ensure 命中等价跳过 → delete 会删掉规则）。
+	allEquivalent := true
+	for _, rule := range nextRules {
+		if !hostFirewallRuleEquivalent(current, rule) {
+			allEquivalent = false
+			break
+		}
+	}
+	if allEquivalent {
+		return &nextRules[0], nil
+	}
 	for _, rule := range nextRules {
 		if err := ensureHostFirewallRule(rule); err != nil {
 			return nil, err

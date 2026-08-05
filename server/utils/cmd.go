@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"kvm_console/logger"
@@ -40,6 +41,79 @@ type CmdResult struct {
 	Error    error  // 错误信息
 }
 
+// ── 命令路径缓存（单一来源，§2.3 评审：firewall/diagnostics 共用，避免每次探测重复 LookPath） ──
+
+var (
+	cmdPathMu    sync.RWMutex
+	cmdPathCache = map[string]string{}
+)
+
+// LookupCmdPath 解析并缓存命令绝对路径；解析失败返回原名（由执行结果判定可用性）。
+// 缓存命中后不再走 PATH 查找，也避免路径解析结果被外部 PATH 变动影响（防 #N 类劫持）。
+func LookupCmdPath(name string) string {
+	if name == "" {
+		return name
+	}
+	cmdPathMu.RLock()
+	path, ok := cmdPathCache[name]
+	cmdPathMu.RUnlock()
+	if ok {
+		return path
+	}
+	resolved, err := exec.LookPath(name)
+	if err != nil {
+		return name
+	}
+	cmdPathMu.Lock()
+	cmdPathCache[name] = resolved
+	cmdPathMu.Unlock()
+	return resolved
+}
+
+// DetectGlibcVersion 探测宿主机 glibc 版本（单一来源，firewall/advice.go 与
+// diagnostics/component_health.go 共用，与 install.sh 同口径）：
+//  1. ldd --version 首行最后一个 token
+//  2. 回退 getconf GNU_LIBC_VERSION 第二个字段
+//  3. 失败返回空串
+func DetectGlibcVersion() string {
+	if result := ExecCommandQuietWithTimeout("ldd", 5*time.Second, "--version"); result.Error == nil {
+		first := strings.TrimSpace(strings.SplitN(result.Stdout, "\n", 2)[0])
+		fields := strings.Fields(first)
+		if len(fields) > 0 {
+			if v := strings.TrimSpace(fields[len(fields)-1]); validGlibcToken(v) {
+				return v
+			}
+		}
+	}
+	if result := ExecCommandQuietWithTimeout("getconf", 5*time.Second, "GNU_LIBC_VERSION"); result.Error == nil {
+		fields := strings.Fields(result.Stdout)
+		if len(fields) >= 2 {
+			if v := strings.TrimSpace(fields[1]); validGlibcToken(v) {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+func validGlibcToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	for _, ch := range token {
+		if !strings.ContainsRune("0123456789.", ch) {
+			return false
+		}
+	}
+	return strings.Contains(token, ".")
+}
+
+// ValidGlibcToken 判断 token 是否为合法 glibc 版本串（仅数字与点、含至少一个点）。
+// 供 native-glibc.txt 等配置读取处复用（与 DetectGlibcVersion 同口径）。
+func ValidGlibcToken(token string) bool {
+	return validGlibcToken(token)
+}
+
 // ExecCommand 执行系统命令
 func ExecCommand(name string, args ...string) *CmdResult {
 	return ExecCommandWithTimeout(name, 30*time.Second, args...)
@@ -55,13 +129,33 @@ func ExecCommandContextWithTimeout(ctx context.Context, name string, timeout tim
 	return execCommandContextWithTimeout(ctx, name, timeout, false, args...)
 }
 
+// buildCmdEnv 构造命令执行环境：剔除父进程继承的本地化变量后强制 C 语言环境。
+// exec 直接传递 envp（不经 shell），子进程 getenv 取"首个"匹配项，若仅 append 覆盖值，
+// 会被父进程原有的 LANG/LC_* 变量遮蔽，导致 virsh 等命令仍输出本地化错误文本
+// （实测 openEuler zh_CN 下 `virsh metadata` 返回"未找到元数据：所需元数据元素未出现"，
+// 使只匹配英文 "metadata not found" 的调用方把"无元数据"误判为硬错误）。
+func buildCmdEnv() []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		key := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			key = kv[:i]
+		}
+		if strings.HasPrefix(key, "LC_") || key == "LANG" || key == "LANGUAGE" {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "LANG=C", "LC_ALL=C")
+}
+
 func execCommandContextWithTimeout(ctx context.Context, name string, timeout time.Duration, sensitive bool, args ...string) *CmdResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cmd := exec.Command(name, args...)
-	// 强制使用 C 语言环境，确保 virsh 等命令输出英文便于解析
-	cmd.Env = append(os.Environ(), "LANG=C", "LC_ALL=C")
+	// 强制使用 C 语言环境，确保 virsh 等命令输出英文便于解析（剔除父进程本地化变量后追加）
+	cmd.Env = buildCmdEnv()
 	prepareProcessGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -196,7 +290,7 @@ func ExecShellQuiet(command string) *CmdResult {
 // execCommandWithLogLevel 执行命令，使用指定日志级别记录非零退出码
 func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout time.Duration, args ...string) *CmdResult {
 	cmd := exec.Command(name, args...)
-	cmd.Env = append(os.Environ(), "LANG=C", "LC_ALL=C")
+	cmd.Env = buildCmdEnv()
 	prepareProcessGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -221,6 +315,16 @@ func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout ti
 		done <- cmd.Wait()
 	}()
 
+	// 与 execCommandContextWithTimeout 对齐（#A5）：timeout <= 0 时不自动终止命令，
+	// 避免零/负超时导致命令立即被杀（此变体无 context，timeout<=0 视为不限时）。
+	var timeoutCh <-chan time.Time
+	var timer *time.Timer
+	if timeout > 0 {
+		timer = time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutCh = timer.C
+	}
+
 	select {
 	case err := <-done:
 		elapsed := time.Since(start)
@@ -242,7 +346,7 @@ func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout ti
 		}
 		return result
 
-	case <-time.After(timeout):
+	case <-timeoutCh:
 		killProcessTree(cmd)
 		select {
 		case <-done:

@@ -23,11 +23,20 @@ const (
 	maxVMTagRunes = 32
 )
 
+// isMetadataNotFoundError 判断错误是否为"无元数据"（正常态，返回空结构而非硬错误）。
+// 兼容中英文：英文由 utils.ExecCommand 强制 C 语言环境保证，中文兜底（防本地化泄漏）。
+func isMetadataNotFoundError(errText string) bool {
+	return strings.Contains(errText, "metadata not found") ||
+		strings.Contains(errText, "no metadata") ||
+		strings.Contains(errText, "未找到元数据") ||
+		strings.Contains(errText, "无元数据")
+}
+
 func readVMConfigMetadata(name string) (*vmConfigMetadata, error) {
 	result := utils.ExecCommand("virsh", "metadata", name, vmConfigMetadataURI, "--config")
 	if result.Error != nil {
 		errText := strings.ToLower(strings.TrimSpace(result.Stderr + "\n" + result.Stdout))
-		if strings.Contains(errText, "metadata not found") || strings.Contains(errText, "no metadata") {
+		if isMetadataNotFoundError(errText) {
 			return &vmConfigMetadata{}, nil
 		}
 		return nil, fmt.Errorf("读取虚拟机配置元数据失败: %s", strings.TrimSpace(result.Stderr))
@@ -113,7 +122,7 @@ func removeVMConfigMetadata(name string) error {
 	result := utils.ExecCommand("virsh", "metadata", name, vmConfigMetadataURI, "--config", "--remove")
 	if result.Error != nil {
 		errText := strings.ToLower(strings.TrimSpace(result.Stderr + "\n" + result.Stdout))
-		if strings.Contains(errText, "metadata not found") || strings.Contains(errText, "no metadata") {
+		if isMetadataNotFoundError(errText) {
 			return nil
 		}
 		return fmt.Errorf("删除虚拟机配置元数据失败: %s", strings.TrimSpace(result.Stderr))

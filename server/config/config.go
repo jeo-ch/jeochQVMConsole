@@ -993,3 +993,16 @@ func indexOf(s string, c byte) int {
 	}
 	return -1
 }
+
+// DefaultConfigDir 面板运行时配置目录（/etc/kvm-console），
+// 集中管理 firewall、ovs、vpc、bridge、public-ip、zram、ksm 等子模块配置。
+const DefaultConfigDir = "/etc/kvm-console"
+
+// InstallDir 返回默认安装路径（优先读 INSTALL_DIR 环境变量，回退 /opt/QVMConsole）。
+// 统一入口，避免在多个包中重复定义。
+func InstallDir() string {
+	if v := os.Getenv("INSTALL_DIR"); v != "" {
+		return v
+	}
+	return "/opt/QVMConsole"
+}

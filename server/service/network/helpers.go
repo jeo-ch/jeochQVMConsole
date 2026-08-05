@@ -8,34 +8,38 @@ import (
 	"kvm_console/utils"
 )
 
-// GetUFWStatus 获取 UFW 状态
+// GetUFWStatus 获取 UFW 状态（行为兼容：后端不可用时返回明确错误文案，§5.6）
 func GetUFWStatus() (string, error) {
-	result := utils.ExecCommand("ufw", "status", "numbered")
+	if HookGetFirewallBackendAvailable == nil || !HookGetFirewallBackendAvailable() {
+		return "", fmt.Errorf("宿主机防火墙后端不可用")
+	}
+	result := utils.ExecCommand(firewallStatusCommand(), "status", "numbered")
 	if result.Error != nil {
-		return "", fmt.Errorf("获取 UFW 状态失败: %s", result.Stderr)
+		return "", fmt.Errorf("获取防火墙状态失败: %s", result.Stderr)
 	}
 	return result.Stdout, nil
 }
 
-// ManageUFWRule 管理 UFW 规则
+// ManageUFWRule 管理防火墙规则（§5.4：#S3 修复命令注入，改走结构化 argv + 白名单）
 func ManageUFWRule(action, rule string) error {
-	var cmd string
-	switch action {
-	case "allow":
-		cmd = fmt.Sprintf("ufw allow %s", rule)
-	case "deny":
-		cmd = fmt.Sprintf("ufw deny %s", rule)
-	case "delete":
-		cmd = fmt.Sprintf("ufw delete %s", rule)
-	default:
-		return fmt.Errorf("不支持的操作: %s", action)
+	if HookManageHostFirewallRule == nil {
+		return fmt.Errorf("防火墙规则管理服务未就绪")
 	}
+	return HookManageHostFirewallRule(action, rule)
+}
 
-	result := utils.ExecShell(cmd)
-	if result.Error != nil {
-		return fmt.Errorf("UFW 操作失败: %s", result.Stderr)
+// firewallStatusCommand 返回当前后端状态命令（ufw/firewalld 兼容）。兼容版旧路径保留 ufw。
+func firewallStatusCommand() string {
+	// 探测后端后按名返回命令；无 hook 时默认 ufw（旧行为）
+	if HookGetFirewallBackendName != nil {
+		switch HookGetFirewallBackendName() {
+		case "firewalld":
+			return "firewall-cmd"
+		case "ufw":
+			return "ufw"
+		}
 	}
-	return nil
+	return "ufw"
 }
 
 // getHostIP 获取宿主机外网 IP

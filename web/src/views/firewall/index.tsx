@@ -26,6 +26,7 @@ import {
   previewEnableHostFirewall,
   previewFirewallPolicy,
   previewHostFirewallConnections,
+  resetHostFirewallBackendCache,
   rollbackFirewall,
   saveFirewallPolicy,
   updateFirewallGeoIP,
@@ -36,7 +37,9 @@ import {
   type HostFirewallRule,
   type HostFirewallStatus,
 } from '@/api/firewall'
+import { getPublicSystemInfo, type UpgradeAdvice } from '@/api/settings'
 import { useUserStore } from '@/stores/user'
+import { useTaskStore } from '@/stores/task'
 import { confirmModal } from '@/utils/confirm'
 import { ROLES } from '@/config/constants'
 import {
@@ -78,6 +81,12 @@ export default function FirewallPage() {
 
   // 宿主机防火墙
   const [hostStatus, setHostStatus] = useState<HostFirewallStatus | null>(null)
+  /** #R：重新检测后端中 */
+  const [backendResetting, setBackendResetting] = useState(false)
+  /** #Q：组件升级提示（v0.9.3，至多一条 Banner，可关闭） */
+  const [upgradeAdvice, setUpgradeAdvice] = useState<UpgradeAdvice | null>(null)
+  /** #L：启用任务自检失败项（从任务消息解析，非空时展示失败清单 + 回滚） */
+  const [selfCheckFailures, setSelfCheckFailures] = useState<string[] | null>(null)
   // KVM 网络防火墙
   const [kvmStatus, setKvmStatus] = useState<FirewallStatus | null>(null)
   const [policy, setPolicy] = useState<FirewallPolicy>(createDefaultPolicy())
@@ -128,6 +137,39 @@ export default function FirewallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
 
+  /** 拉取 /system-info 的 upgrade_advice（#Q，v0.9.3），Banner 展示与后端安装报告同口径 */
+  useEffect(() => {
+    if (!isAdmin) return
+    void getPublicSystemInfo()
+      .then((res) => setUpgradeAdvice(res.data?.firewall?.upgrade_advice || null))
+      .catch(() => {
+        // 请求层已提示
+      })
+  }, [isAdmin])
+
+  /** 监听 enable_host_firewall 任务终态：#L 自检失败时解析失败项（"启用后自检失败: <项>; <项>"） */
+  const taskList = useTaskStore((s) => s.tasks)
+  useEffect(() => {
+    const enableTask = [...taskList]
+      .filter((t) => t.type === 'enable_host_firewall')
+      .sort((a, b) => b.id - a.id)[0]
+    if (!enableTask) return
+    if (enableTask.status !== 'failed' || !enableTask.message) {
+      setSelfCheckFailures(null)
+      return
+    }
+    const match = /自检失败[:：]\s*(.+)$/.exec(enableTask.message)
+    if (!match) {
+      setSelfCheckFailures(null)
+      return
+    }
+    const items = match[1]
+      .split(/[;；]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    setSelfCheckFailures(items.length ? items : null)
+  }, [taskList])
+
   /** 切换 Tab：首次进入 KVM Tab 时加载策略与状态（显式传 tab，避免闭包读到旧的 activeTab） */
   const switchTab = useCallback(
     (key: string) => {
@@ -172,6 +214,39 @@ export default function FirewallPage() {
     try {
       const res = await disableHostFirewall()
       Toast.success(res.message || '宿主机防火墙关闭任务已提交')
+      refreshAfterTask()
+    } catch {
+      // 请求层已提示
+    }
+  }, [refreshAfterTask])
+
+  /** #R：清除后端探测缓存并重新探测（POST /firewall/host/reset-backend，复用页头刷新语义） */
+  const handleResetBackend = useCallback(async () => {
+    setBackendResetting(true)
+    try {
+      const res = await resetHostFirewallBackendCache()
+      setHostStatus(res.data || null)
+      Toast.success(res.message || '防火墙后端已重新检测')
+    } catch {
+      // 请求层已提示
+    } finally {
+      setBackendResetting(false)
+    }
+  }, [])
+
+  /** #L：Enable 自检失败后的回滚入口（走 POST /firewall/host/disable，二次确认） */
+  const handleRollbackEnable = useCallback(async () => {
+    const ok = await confirmModal({
+      title: '高风险操作',
+      content: '确认回滚（关闭）宿主机防火墙？回滚后将移除面板自建 zone 与放通规则，请确认 SSH 与面板端口可访问。',
+      okText: '确认回滚',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const res = await disableHostFirewall()
+      setSelfCheckFailures(null)
+      Toast.success(res.message || '宿主机防火墙回滚任务已提交')
       refreshAfterTask()
     } catch {
       // 请求层已提示
@@ -423,6 +498,11 @@ export default function FirewallPage() {
             hostStatus={hostStatus}
             loading={loading}
             enableLoading={enablePreviewLoading}
+            backendResetting={backendResetting}
+            upgradeAdvice={upgradeAdvice}
+            selfCheckFailures={selfCheckFailures}
+            onResetBackend={() => void handleResetBackend()}
+            onRollbackEnable={() => void handleRollbackEnable()}
             onEnable={() => void handleOpenEnable()}
             onDisable={() => void handleDisableHost()}
             onAddVncDefault={() => void handleAddVncDefault()}

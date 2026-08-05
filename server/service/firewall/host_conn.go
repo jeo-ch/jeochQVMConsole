@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"kvm_console/utils"
@@ -38,6 +39,10 @@ func CloseHostFirewallConnections(mode string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// #A4：ss -K 需 iproute2 ≥4.8（CentOS 7 的 3.10 不支持），不支持时明确报错而非静默空转。
+	if !ssForceKillSupported() {
+		return 0, fmt.Errorf("当前 iproute2 的 ss 不支持 -K（强制断开连接），请升级 iproute2 至 4.8+")
+	}
 	if preview.Mode == "all" {
 		result := utils.ExecShellWithTimeout("ss -K -t state established 2>/dev/null || true", 15*time.Second)
 		if result.Error != nil {
@@ -51,6 +56,24 @@ func CloseHostFirewallConnections(mode string) (int, error) {
 		utils.ExecShellWithTimeout(cmd, 5*time.Second)
 	}
 	return preview.Count, nil
+}
+
+var (
+	ssForceKillOnce   sync.Once
+	ssForceKillResult bool
+)
+
+// ssForceKillSupported 探测当前 ss 是否支持 -K（强制断开）。探测结果进程级缓存。
+func ssForceKillSupported() bool {
+	ssForceKillOnce.Do(func() {
+		result := utils.ExecShellQuiet(`ss -K -t state established dport = :1 2>&1`)
+		text := strings.ToLower(result.Stdout + " " + result.Stderr)
+		// 不支持时 stderr 形如 "ss: unrecognized option 'K'" / "ss: unknown option"
+		ssForceKillResult = !strings.Contains(text, "unrecognized option") &&
+			!strings.Contains(text, "unknown option") &&
+			!strings.Contains(text, "invalid option")
+	})
+	return ssForceKillResult
 }
 
 func hostFirewallAllowedPorts() map[int]bool {
@@ -71,7 +94,8 @@ func hostFirewallAllowedPorts() map[int]bool {
 }
 
 func listHostTCPConnections() []HostFirewallConnection {
-	result := utils.ExecShell(`ss -Htn state established 2>/dev/null`)
+	// #A4：不用 -H（iproute2 <4.5 不支持），去掉后首行表头会被下方字段解析自然跳过。
+	result := utils.ExecShell(`ss -tn state established 2>/dev/null`)
 	var connections []HostFirewallConnection
 	for _, line := range strings.Split(result.Stdout, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))

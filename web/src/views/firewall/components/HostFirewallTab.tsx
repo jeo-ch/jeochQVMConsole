@@ -1,11 +1,12 @@
 /**
- * 宿主机防火墙 Tab（UFW 入站管控）
+ * 宿主机防火墙 Tab（后端抽象：UFW / Firewalld / none）
  * - 状态横幅：启用/关闭 + 开启/关闭操作
- * - 左侧运行状态卡：UFW 可用性、默认策略、SSH/面板端口、Docker 兼容说明
+ * - 左侧运行状态卡：防火墙后端、默认策略、SSH/面板端口、Docker 兼容说明、错误 hint（#R）
  * - 右侧规则表：端口/协议/动作/备注筛选，保护行禁止编辑删除
+ * - #L 自检失败清单与回滚；#Q 组件升级提示 Banner（至多一条，可关闭）
  */
 import { useMemo, useState } from 'react'
-import { Button, Col, Input, Row, Select, Table, Tag, Tooltip } from '@douyinfe/semi-ui'
+import { Banner, Button, Col, Input, Row, Select, Table, Tag, Tooltip } from '@douyinfe/semi-ui'
 import {
   IconAlertTriangle,
   IconClose,
@@ -15,6 +16,7 @@ import {
   IconList,
   IconPlay,
   IconPlus,
+  IconRefresh,
   IconSearch,
   IconSettingStroked,
   IconTickCircle,
@@ -22,6 +24,7 @@ import {
 } from '@douyinfe/semi-icons'
 import type { ColumnProps } from '@douyinfe/semi-ui/lib/es/table'
 import type { HostFirewallRule, HostFirewallStatus } from '@/api/firewall'
+import type { UpgradeAdvice } from '@/api/settings'
 import { formatRulePort } from '../utils'
 
 interface HostFirewallTabProps {
@@ -29,19 +32,62 @@ interface HostFirewallTabProps {
   loading: boolean
   /** 开启按钮预览请求中 */
   enableLoading: boolean
+  /** #R：重新检测后端中 */
+  backendResetting: boolean
+  /** #Q：组件升级提示（v0.9.3，至多一条 Banner） */
+  upgradeAdvice: UpgradeAdvice | null
+  /** #L：Enable 任务自检失败项清单（null 表示无） */
+  selfCheckFailures: string[] | null
   onEnable: () => void
   onDisable: () => void
+  /** #R：重新检测（POST /firewall/host/reset-backend） */
+  onResetBackend: () => void
+  /** #L：自检失败后的回滚入口 */
+  onRollbackEnable: () => void
   onAddVncDefault: () => void
   onEditRule: (row?: HostFirewallRule) => void
   onDeleteRule: (row: HostFirewallRule) => void
+}
+
+/** #R：错误码 → 可操作提示文案映射 */
+const ERROR_CODE_HINTS: Record<string, { text: string; command: string }> = {
+  FIREWALLD_NOT_RUNNING: { text: 'firewalld 服务未运行', command: 'systemctl start firewalld' },
+  FIREWALLD_OLD_VERSION: { text: 'firewalld 版本过旧，端口转发可靠性受限', command: '' },
+  FIREWALLD_COMMAND_FAILED: { text: 'firewall-cmd 命令执行失败', command: '' },
+  ZONE_NOT_BOUND: { text: '接口未绑定专用 zone', command: 'firewall-cmd --get-zones' },
+  DBUS_ERROR: { text: 'firewalld D-Bus 连接异常', command: 'systemctl restart firewalld' },
+  PERMISSION_DENIED: { text: '权限不足，请检查运行账户', command: '' },
+}
+
+/** #Q：upgrade_advice 优先级（firewalld_unsupported > firewalld_old > glibc_low > selinux），命中第一条展示 */
+function pickUpgradeAdvice(advice: UpgradeAdvice | null): string | null {
+  if (!advice) return null
+  if (advice.firewalld_unsupported) {
+    return 'firewalld 版本低于 0.6，面板不启用宿主机防火墙统一管理，请升级至 0.6+ 或使用发行版 iptables-service'
+  }
+  if (advice.firewalld_old) {
+    return 'firewalld 版本过旧，端口转发/SPICE 公网可靠性受限，建议升级至 0.9+'
+  }
+  if (advice.glibc_low_for_native) {
+    return '当前使用 compat 档，升级 glibc 后系统将满足 native 档启用条件'
+  }
+  if (advice.selinux_enforcing) {
+    return 'SELinux Enforcing 下 zone 文件已 restorecon 处理'
+  }
+  return null
 }
 
 export default function HostFirewallTab({
   hostStatus,
   loading,
   enableLoading,
+  backendResetting,
+  upgradeAdvice,
+  selfCheckFailures,
   onEnable,
   onDisable,
+  onResetBackend,
+  onRollbackEnable,
   onAddVncDefault,
   onEditRule,
   onDeleteRule,
@@ -51,6 +97,8 @@ export default function HostFirewallTab({
   const [protocolFilter, setProtocolFilter] = useState('')
   const [actionFilter, setActionFilter] = useState('')
   const [remarkSearch, setRemarkSearch] = useState('')
+  /** #Q：advice Banner 已关闭（会话内不再展示） */
+  const [adviceDismissed, setAdviceDismissed] = useState(false)
 
   const rules = useMemo(() => hostStatus?.rules || [], [hostStatus])
 
@@ -75,6 +123,17 @@ export default function HostFirewallTab({
     }
     return data
   }, [rules, portSearch, protocolFilter, actionFilter, remarkSearch])
+
+  // ==================== #R 错误 hint ====================
+  const errorHint = hostStatus?.error_code
+    ? ERROR_CODE_HINTS[hostStatus.error_code] || {
+        text: `防火墙后端异常（${hostStatus.error_code}）`,
+        command: '',
+      }
+    : null
+
+  // ==================== #Q advice Banner ====================
+  const adviceText = adviceDismissed ? null : pickUpgradeAdvice(upgradeAdvice)
 
   // ==================== 表格 ====================
   const columns: ColumnProps<HostFirewallRule>[] = [
@@ -160,8 +219,26 @@ export default function HostFirewallTab({
     },
   ]
 
+  // #O：转发默认「未管理」时按 ip_backend 区分 Tooltip 文案
+  const routedTip = !hostStatus?.default_routed
+    ? hostStatus?.ip_backend === 'legacy'
+      ? '依赖面板 iptables FORWARD（可靠）'
+      : '依赖 zone/policy 绑定，勿依赖面板 iptables 顺序'
+    : ''
+
   return (
     <div className="fw-tab-pane">
+      {/* #Q：组件升级提示 Banner（v0.9.3，至多一条，可关闭） */}
+      {adviceText && (
+        <Banner
+          type="warning"
+          title="组件升级提示"
+          description={adviceText}
+          onClose={() => setAdviceDismissed(true)}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* 状态横幅 */}
       <div className={`fw-banner ${hostStatus?.active ? 'enabled' : 'disabled'}`}>
         <div className="fw-banner-icon">
@@ -174,7 +251,7 @@ export default function HostFirewallTab({
           <div className="fw-banner-desc">
             {hostStatus?.active
               ? '防火墙规则正在保护宿主机入站流量'
-              : '端口转发仍会写入 UFW 持久放通规则'}
+              : '端口转发仍会写入防火墙持久放通规则'}
           </div>
         </div>
         <div className="fw-banner-actions">
@@ -193,6 +270,41 @@ export default function HostFirewallTab({
         </div>
       </div>
 
+      {/* #L：Enable 自检失败清单 + 回滚入口（状态横幅下方） */}
+      {selfCheckFailures && selfCheckFailures.length > 0 && (
+        <div className="fw-banner warning" style={{ marginBottom: 12 }}>
+          <div className="fw-banner-icon">
+            <IconAlertTriangle />
+          </div>
+          <div className="fw-banner-body">
+            <div className="fw-banner-title">启用后自检失败</div>
+            <div className="fw-banner-desc" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              {selfCheckFailures.map((item) => (
+                <Tooltip key={item} content={item} position="top">
+                  <Tag size="small" color="red">{item}</Tag>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+          <div className="fw-banner-actions">
+            <Button type="danger" theme="light" icon={<IconClose />} onClick={onRollbackEnable}>
+              回滚（关闭防火墙）
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* backend === 'none'：追加不可用提示（#S） */}
+      {hostStatus?.backend === 'none' && (
+        <Banner
+          type="warning"
+          closeIcon={null}
+          icon={<IconAlertTriangle />}
+          description="当前系统无 ufw/firewalld，宿主机防火墙不可用，端口转发仍会写入 iptables。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Row gutter={[16, 16]}>
         {/* 运行状态 */}
         <Col xs={24} md={9} lg={8}>
@@ -203,9 +315,9 @@ export default function HostFirewallTab({
             </div>
             <div className="fw-info-list">
               <div className="fw-info-item">
-                <span className="fw-info-label">UFW</span>
+                <span className="fw-info-label">防火墙后端</span>
                 <Tag size="small" color={hostStatus?.ufw_available ? 'green' : 'red'}>
-                  {hostStatus?.ufw_available ? '可用' : '不可用'}
+                  {hostStatus?.backend_name || (hostStatus?.ufw_available ? '可用' : '不可用')}
                 </Tag>
               </div>
               <div className="fw-info-item">
@@ -222,9 +334,20 @@ export default function HostFirewallTab({
               </div>
               <div className="fw-info-item">
                 <span className="fw-info-label">转发默认</span>
-                <Tag size="small" color={hostStatus?.default_routed === 'allow' ? 'orange' : 'green'}>
-                  {hostStatus?.default_routed || '-'}
-                </Tag>
+                {hostStatus?.default_routed ? (
+                  <Tag
+                    size="small"
+                    color={hostStatus.default_routed === 'allow' ? 'orange' : 'green'}
+                  >
+                    {hostStatus.default_routed}
+                  </Tag>
+                ) : (
+                  <Tooltip content={routedTip} position="top" showArrow={false}>
+                    <Tag size="small" color="grey">
+                      未管理
+                    </Tag>
+                  </Tooltip>
+                )}
               </div>
               <div className="fw-info-item">
                 <span className="fw-info-label">SSH 端口</span>
@@ -235,7 +358,28 @@ export default function HostFirewallTab({
                 <span className="qvm-mono">{(hostStatus?.panel_ports || []).join(', ') || '-'}</span>
               </div>
             </div>
-            {hostStatus?.docker_compatibility && (
+            {errorHint && (
+              <div className="fw-card-footer">
+                <IconAlertTriangle />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                  <span>{errorHint.text}</span>
+                  {errorHint.command && (
+                    <span className="qvm-mono" style={{ fontSize: 11.5 }}>
+                      {errorHint.command}
+                    </span>
+                  )}
+                  <Button
+                    size="small"
+                    icon={<IconRefresh spin={backendResetting} />}
+                    loading={backendResetting}
+                    onClick={onResetBackend}
+                  >
+                    重新检测
+                  </Button>
+                </div>
+              </div>
+            )}
+            {!errorHint && hostStatus?.docker_compatibility && (
               <div className="fw-card-footer">
                 <IconInfoCircle />
                 <span>{hostStatus.docker_compatibility}</span>

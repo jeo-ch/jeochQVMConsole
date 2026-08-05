@@ -24,6 +24,8 @@ type HostFirewallEnableRequest = fwpkg.HostFirewallEnableRequest
 type HostFirewallConnection = fwpkg.HostFirewallConnection
 type HostFirewallConnectionPreview = fwpkg.HostFirewallConnectionPreview
 type HostFirewallCloseConnectionsRequest = fwpkg.HostFirewallCloseConnectionsRequest
+type BackendStatus = fwpkg.BackendStatus
+type UpgradeAdvice = fwpkg.UpgradeAdvice
 
 // init wires firewall package function variables and cross-package hooks.
 // This breaks the circular dependency: firewall package cannot import service,
@@ -74,6 +76,11 @@ func init() {
 	netpkg.HookClearPortForwardFirewallExemption = fwpkg.ClearPortForwardFirewallExemption
 	netpkg.HookEnsureHostFirewallPortForwardRule = fwpkg.EnsureHostFirewallPortForwardRule
 	netpkg.HookDeleteHostFirewallPortForwardRule = fwpkg.DeleteHostFirewallPortForwardRule
+	netpkg.HookManageHostFirewallRule = fwpkg.ManageHostFirewallRule
+	netpkg.HookGetFirewallBackendAvailable = func() bool {
+		return fwpkg.DetectHostFirewallBackend().Available()
+	}
+	netpkg.HookGetFirewallBackendName = fwpkg.GetHostFirewallBackendName
 }
 
 // ── VM firewall policy delegates ──
@@ -138,6 +145,38 @@ func ClearPortForwardFirewallExemption(key string) error {
 
 func GetHostFirewallStatus() (*HostFirewallStatus, error) {
 	return fwpkg.GetHostFirewallStatus()
+}
+
+func GetHostFirewallBackendName() string {
+	return fwpkg.GetHostFirewallBackendName()
+}
+
+func GetFirewallBackendStatus() fwpkg.BackendStatus {
+	return fwpkg.GetFirewallBackendStatus()
+}
+
+func ResetFirewallBackendCache() {
+	fwpkg.ResetFirewallBackendCache()
+}
+
+func StartFirewallDriftMonitor() {
+	fwpkg.StartFirewallDriftMonitor()
+}
+
+func DetectIPTablesBackend() string {
+	return fwpkg.DetectIPTablesBackend()
+}
+
+func DetectUpgradeAdvice() fwpkg.UpgradeAdvice {
+	return fwpkg.DetectUpgradeAdvice()
+}
+
+func DetectGlibcVersion() string {
+	return fwpkg.DetectGlibcVersion()
+}
+
+func DetectSELinuxMode() string {
+	return fwpkg.DetectSELinuxMode()
 }
 
 func ListHostFirewallRules() ([]HostFirewallRule, error) {

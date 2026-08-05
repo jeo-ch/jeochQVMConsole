@@ -72,7 +72,8 @@ func ensureDomainNVRAMPath(domainXML, nvramPath string) string {
 	if reSelfClosing.MatchString(domainXML) {
 		return vm_xml.SetDomainNVRAMFormat(reSelfClosing.ReplaceAllString(domainXML, "<nvram$1>"+nvramPath+"</nvram>"), "qcow2")
 	}
-	nvramXML := fmt.Sprintf("    <nvram template='/usr/share/OVMF/OVMF_VARS_4M.ms.fd' templateFormat='raw' format='qcow2'>%s</nvram>\n", nvramPath)
+	// 兜底仅当 XML 无现成 nvram 元素时用；模板路径须动态解析（openEuler/麒麟/Ubuntu 路径不同）
+	nvramXML := fmt.Sprintf("    <nvram template='%s' templateFormat='raw' format='qcow2'>%s</nvram>\n", vm_xml.ResolveOVMFVarsTemplatePath(true), nvramPath)
 	if strings.Contains(domainXML, "</os>") {
 		return strings.Replace(domainXML, "</os>", nvramXML+"  </os>", 1)
 	}

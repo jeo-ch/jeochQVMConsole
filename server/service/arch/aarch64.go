@@ -35,6 +35,7 @@ func (p *aarch64Profile) UEFIFirmwarePath(secureBoot bool) string {
 	candidates := []string{
 		"/usr/share/AAVMF/AAVMF_CODE.fd",
 		"/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd",
+		"/usr/share/edk2/aarch64/AAVMF_CODE.fd",
 		"/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
 	}
 	return pickFirstExistingPath(candidates, candidates[0])
@@ -65,6 +66,7 @@ func (p *aarch64Profile) UEFIVarsTemplatePath(secureBoot bool) string {
 	_ = secureBoot
 	candidates := []string{
 		"/usr/share/AAVMF/AAVMF_VARS.fd",
+		"/usr/share/edk2/aarch64/AAVMF_VARS.fd",
 		"/usr/share/qemu-efi-aarch64/vars-template-pflash.raw",
 	}
 	return pickFirstExistingPath(candidates, candidates[0])

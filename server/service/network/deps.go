@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"kvm_console/config"
 	"kvm_console/model"
 	vpcpkg "kvm_console/service/network/vpc"
 )
@@ -38,7 +39,7 @@ type FirewallPolicy struct {
 
 // ── VPC constants (与 vpc/types.go 一致，避免循环 import) ──
 
-const vpcConfigDir = "/etc/kvm-console/vpc"
+const vpcConfigDir = config.DefaultConfigDir + "/vpc"
 
 // vpcDHCPHostsPath 返回 VPC 交换机的 DHCP 静态绑定文件路径。
 func vpcDHCPHostsPath(id uint) string {
@@ -90,6 +91,12 @@ var (
 	HookClearPortForwardFirewallExemption func(key string) error
 	HookEnsureHostFirewallPortForwardRule func(hostPort, protocol, comment string) error
 	HookDeleteHostFirewallPortForwardRule func(hostPort, protocol string) error
+	// HookManageHostFirewallRule 委托 firewall 包 ManageHostFirewallRule（§5.4，#S3 注入防护）
+	HookManageHostFirewallRule func(action, rule string) error
+	// HookGetFirewallBackendAvailable 委托 firewall 包后端可用性探测（GetUFWStatus 兼容）
+	HookGetFirewallBackendAvailable func() bool
+	// HookGetFirewallBackendName 委托 firewall 包后端名探测（GetUFWStatus 命令选择）
+	HookGetFirewallBackendName func() string
 )
 
 // ── VM / User hooks ──

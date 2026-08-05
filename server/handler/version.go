@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"kvm_console/config"
+	"kvm_console/service"
 	"kvm_console/service/arch"
 	"kvm_console/service/ovs"
 )
@@ -34,6 +35,7 @@ func GetPublicSystemInfo(c *gin.Context) {
 	osInfo := getOSReleaseInfo()
 	pkgMgr := detectPackageManager()
 	ovsDep := getOVSDependencyInfo()
+	fwStatus := getFirewallBackendStatus()
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
@@ -57,8 +59,29 @@ func GetPublicSystemInfo(c *gin.Context) {
 			"ovs_service":   ovsDep.ServiceName,
 			"ovs_installed": ovsDep.Installed,
 			"ovs_install_command": ovsDep.InstallCommand,
+			"firewall": gin.H{
+				"backend":           fwStatus.Backend,
+				"available":         fwStatus.Available,
+				"active":            fwStatus.Active,
+				"version":           fwStatus.Version,
+				"ip_backend":        fwStatus.IPBackend,
+				"nm_managed":        fwStatus.NM,
+				"docker_compatible": fwStatus.DockerCompatible,
+				"error_code":        fwStatus.ErrorCode,
+				"upgrade_advice":    getUpgradeAdvice(),
+			},
 		},
 	})
+}
+
+// ── 国产化组件诊断辅助（§4.1） ──
+
+func getFirewallBackendStatus() service.BackendStatus {
+	return service.GetFirewallBackendStatus()
+}
+
+func getUpgradeAdvice() service.UpgradeAdvice {
+	return service.DetectUpgradeAdvice()
 }
 
 // ── OS / 包管理器 / OVS 依赖检测 ──

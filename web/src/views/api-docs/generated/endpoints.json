@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T07:54:25.005Z",
-  "count": 317,
+  "generated_at": "2026-08-05T01:28:44.571Z",
+  "count": 318,
   "endpoints": [
     {
       "method": "POST",
@@ -386,6 +386,17 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/host/reset-backend",
+      "handler": "ResetHostFirewallBackendCache",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "清除后端探测缓存并重新探测（#R 重新检测）"
     },
     {
       "method": "GET",

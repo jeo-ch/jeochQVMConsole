@@ -364,6 +364,7 @@ func Setup() *gin.Engine {
 				firewall.POST("/geoip/update", handler.UpdateFirewallGeoIP)
 				firewall.PUT("/port-forward", handler.SetPortForwardFirewall)
 				firewall.GET("/host/status", handler.GetHostFirewallStatus)
+				firewall.POST("/host/reset-backend", handler.ResetHostFirewallBackendCache) // 清除后端探测缓存并重新探测（#R 重新检测）
 				firewall.POST("/host/enable/preview", handler.PreviewEnableHostFirewall)
 				firewall.POST("/host/enable", handler.EnableHostFirewall)
 				firewall.POST("/host/disable", handler.DisableHostFirewall)

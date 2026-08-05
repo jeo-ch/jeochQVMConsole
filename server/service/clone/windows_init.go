@@ -302,7 +302,7 @@ func cloneWindows(ctx context.Context, params *CloneParams, cloneDisk string, ra
 				return err
 			}
 		} else {
-			if err := vm_xml.CreateQCOW2NVRAMFromTemplate("/usr/share/OVMF/OVMF_VARS_4M.ms.fd", nvramClone); err != nil {
+			if err := vm_xml.CreateQCOW2NVRAMFromTemplate(vm_xml.ResolveOVMFVarsTemplatePath(true), nvramClone); err != nil {
 				return err
 			}
 		}

@@ -6,14 +6,16 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"kvm_console/config"
 )
 
 // ── Constants ──
 
 const (
-	firewallDir        = "/etc/kvm-console/firewall"
-	firewallPolicyFile = "/etc/kvm-console/firewall/policy.json"
-	firewallRulesFile  = "/etc/kvm-console/firewall/rules.nft"
+	firewallDir        = config.DefaultConfigDir + "/firewall"
+	firewallPolicyFile = config.DefaultConfigDir + "/firewall/policy.json"
+	firewallRulesFile  = config.DefaultConfigDir + "/firewall/rules.nft"
 	firewallTable      = "kvm_console_fw"
 	defaultGeoBaseURL  = "https://www.ipdeny.com/ipblocks/data/aggregated"
 )
@@ -117,6 +119,10 @@ type HostFirewallRule struct {
 type HostFirewallStatus struct {
 	Active              bool               `json:"active"`
 	UFWAvailable        bool               `json:"ufw_available"`
+	Backend             string             `json:"backend"`      // ufw/firewalld/none（§5.5，M0）
+	BackendName         string             `json:"backend_name"` // UFW/Firewalld/不可用
+	IPBackend           string             `json:"ip_backend"`   // v0.8/#O: legacy | nf_tables | ""（仅 BackendStatus 返回时可靠）
+	ErrorCode           string             `json:"error_code"`   // v0.8/#R: FIREWALLD_NOT_RUNNING 等
 	DefaultIncoming     string             `json:"default_incoming"`
 	DefaultOutgoing     string             `json:"default_outgoing"`
 	DefaultRouted       string             `json:"default_routed"`

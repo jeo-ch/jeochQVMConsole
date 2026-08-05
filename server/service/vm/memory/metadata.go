@@ -227,8 +227,11 @@ func ResolveBalloonStatus(name, state string, supported, pending bool) string {
 func ReadVMMemoryMetadata(name string) (*VMMemoryMetadata, error) {
 	result, err := libvirt_rpc.GetDomainMetadataRPC(name, 2, MemoryMetadataURI, 2) // metadataType=2(VIR_DOMAIN_METADATA_ELEMENT), flags=2(VIR_DOMAIN_AFFECT_CONFIG)
 	if err != nil {
+		// 与 config_metadata.go isMetadataNotFoundError 同理：元数据不存在是正常态（首次启动尚未写入配置），
+		// 需同时兼容中英文报错（C 环境下 go-libvirt 的 RPC 错误仍可能输出本地化中文）。
 		text := strings.ToLower(strings.TrimSpace(err.Error()))
-		if strings.Contains(text, "metadata not found") || strings.Contains(text, "no metadata") {
+		if strings.Contains(text, "metadata not found") || strings.Contains(text, "no metadata") ||
+			strings.Contains(text, "未找到元数据") || strings.Contains(text, "无元数据") {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("读取动态内存配置失败: %w", err)

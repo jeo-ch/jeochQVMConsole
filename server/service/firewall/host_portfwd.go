@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"kvm_console/utils"
 )
 
 func IsHostFirewallActive() bool {
-	result := utils.ExecCommand("ufw", "status")
-	return result.Error == nil && strings.Contains(strings.ToLower(result.Stdout), "status: active")
+	active, err := resolveBackend().Active()
+	if err != nil {
+		return false
+	}
+	return active
 }
 
 func EnsureHostFirewallPortForwardRule(hostPort, protocol, comment string) error {

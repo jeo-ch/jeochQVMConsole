@@ -5,67 +5,65 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"kvm_console/config"
 	"kvm_console/utils"
 )
 
+// ── 宿主机防火墙编排层（§5.3：命令执行全走后端，本文件仅保留编排逻辑） ──
+
+// GetHostFirewallStatus 宿主机防火墙状态编排（§5.3：命令执行全走后端，本文件仅保留编排逻辑）。
+// 探测结果统一复用 GetFirewallBackendStatus（Active/Defaults/规则/IPBackend/Docker 一次探测），
+// 避免 status 轮询时对同一后端重复发起子进程。
 func GetHostFirewallStatus() (*HostFirewallStatus, error) {
-	rules, err := ListHostFirewallRules()
-	if err != nil {
-		return nil, err
+	backendStatus := GetFirewallBackendStatus()
+	status := &HostFirewallStatus{
+		Backend:             backendStatus.Backend,
+		BackendName:         backendStatus.BackendName,
+		UFWAvailable:        backendStatus.Available, // 兼容前端旧字段
+		Active:              backendStatus.Active,
+		DefaultIncoming:     backendStatus.DefaultIncoming,
+		DefaultOutgoing:     backendStatus.DefaultOutgoing,
+		DefaultRouted:       backendStatus.DefaultRouted,
+		IPBackend:           backendStatus.IPBackend,
+		ErrorCode:           backendStatus.ErrorCode, // #R：供前端 hint/ip_backend Tooltip 消费
+		LastError:           backendStatus.LastError,
+		DockerCompatible:    backendStatus.DockerCompatible, // #D：§5.1 决策 6
+		DockerCompatibility: backendStatus.DockerCompatibility,
 	}
-	statusText := utils.ExecCommand("ufw", "status", "verbose")
-	active := strings.Contains(strings.ToLower(statusText.Stdout), "status: active")
-	defaultIncoming, defaultOutgoing, defaultRouted := parseUFWDefaults(statusText.Stdout)
 	sshPorts := DetectSSHPorts()
 	panelPorts := DetectPanelPorts()
-	protected := buildProtectedHostFirewallRules(sshPorts, panelPorts)
-	for i := range rules {
-		markHostFirewallProtection(&rules[i], sshPorts, panelPorts)
+	status.SSHPorts = sshPorts
+	status.PanelPorts = panelPorts
+	status.ProtectedRules = buildProtectedHostFirewallRules(sshPorts, panelPorts)
+	status.RecommendedRules = BuildHostFirewallRecommendedRules()
+	// 编排层：解析 + 保护标记 + 排序（§5.3），复用 backendStatus 的原始规则避免二次拉取
+	if backendStatus.LastError == "" {
+		rules := backendStatus.Rules
+		for i := range rules {
+			markHostFirewallProtection(&rules[i], sshPorts, panelPorts)
+		}
+		sortHostFirewallRules(rules)
+		status.Rules = rules
 	}
-	return &HostFirewallStatus{
-		Active:              active,
-		UFWAvailable:        utils.ExecCommand("ufw", "--version").Error == nil,
-		DefaultIncoming:     defaultIncoming,
-		DefaultOutgoing:     defaultOutgoing,
-		DefaultRouted:       defaultRouted,
-		Rules:               rules,
-		ProtectedRules:      protected,
-		RecommendedRules:    BuildHostFirewallRecommendedRules(),
-		SSHPorts:            sshPorts,
-		PanelPorts:          panelPorts,
-		DockerCompatible:    true,
-		DockerCompatibility: "宿主机防火墙不写入 Docker 链，启用时保持 routed 默认允许，Docker bridge 模式不受面板防火墙约束。",
-		LastError:           strings.TrimSpace(statusText.Stderr),
-	}, nil
+	return status, nil
 }
 
 func ListHostFirewallRules() ([]HostFirewallRule, error) {
-	result := utils.ExecCommand("ufw", "show", "added")
-	if result.Error != nil {
-		return nil, fmt.Errorf("读取 UFW 规则失败: %s", result.Stderr)
+	backend := resolveBackend()
+	rules, err := backend.ListRules()
+	if err != nil {
+		return nil, err
 	}
-	rules := parseUFWAddedRules(result.Stdout)
 	sshPorts := DetectSSHPorts()
 	panelPorts := DetectPanelPorts()
 	for i := range rules {
 		markHostFirewallProtection(&rules[i], sshPorts, panelPorts)
 	}
-	sort.SliceStable(rules, func(i, j int) bool {
-		if rules[i].Protected != rules[j].Protected {
-			return rules[i].Protected
-		}
-		if rules[i].PortStart != rules[j].PortStart {
-			return rules[i].PortStart < rules[j].PortStart
-		}
-		return rules[i].ID < rules[j].ID
-	})
+	sortHostFirewallRules(rules)
 	return rules, nil
 }
 
@@ -79,26 +77,16 @@ func PreviewEnableHostFirewall(req HostFirewallEnableRequest) (*HostFirewallStat
 }
 
 func EnableHostFirewall(req HostFirewallEnableRequest, progress func(int, string)) error {
+	backend := resolveBackend()
+	if !backend.Available() {
+		return fmt.Errorf("宿主机防火墙后端不可用")
+	}
 	if progress != nil {
 		progress(10, "正在探测 SSH 和面板端口...")
 	}
 	allRules := mergeHostFirewallRules(buildProtectedHostFirewallRules(DetectSSHPorts(), DetectPanelPorts()), normalizeHostFirewallRuleRequests(req.Rules))
 	if len(allRules) == 0 {
 		return fmt.Errorf("未检测到需要保护的 SSH 或面板端口，已取消启用防火墙")
-	}
-	if progress != nil {
-		progress(25, "正在补齐 UFW 基础策略...")
-	}
-	commands := [][]string{
-		{"default", "deny", "incoming"},
-		{"default", "allow", "outgoing"},
-		{"default", "allow", "routed"},
-	}
-	for _, args := range commands {
-		result := utils.ExecCommand("ufw", args...)
-		if result.Error != nil {
-			return fmt.Errorf("设置 UFW 默认策略失败: %s", result.Stderr)
-		}
 	}
 	if progress != nil {
 		progress(50, "正在写入确认后的放通规则...")
@@ -108,36 +96,23 @@ func EnableHostFirewall(req HostFirewallEnableRequest, progress func(int, string
 			return err
 		}
 	}
-	if progress != nil {
-		progress(80, "正在启用宿主机防火墙...")
-	}
-	result := utils.ExecCommandWithTimeout("ufw", 2*time.Minute, "--force", "enable")
-	if result.Error != nil {
-		return fmt.Errorf("启用 UFW 失败: %s", result.Stderr)
-	}
-	if progress != nil {
-		progress(100, "宿主机防火墙已启用")
-	}
-	return nil
+	return backend.Enable(progress)
 }
 
 func DisableHostFirewall(progress func(int, string)) error {
+	backend := resolveBackend()
+	if !backend.Available() {
+		return fmt.Errorf("宿主机防火墙后端不可用")
+	}
 	if progress != nil {
 		progress(20, "正在关闭宿主机防火墙...")
 	}
-	result := utils.ExecCommandWithTimeout("ufw", 2*time.Minute, "--force", "disable")
-	if result.Error != nil {
-		return fmt.Errorf("关闭 UFW 失败: %s", result.Stderr)
-	}
-	if progress != nil {
-		progress(100, "宿主机防火墙已关闭")
-	}
-	return nil
+	return backend.Disable()
 }
 
 func DetectSSHPorts() []int {
 	ports := map[int]bool{}
-	result := utils.ExecCommand("sshd", "-T")
+	result := utils.ExecCommand(firewallCommandPath("sshd"), "-T")
 	if result.Error == nil {
 		for _, line := range strings.Split(result.Stdout, "\n") {
 			fields := strings.Fields(strings.TrimSpace(line))
@@ -185,119 +160,7 @@ func sortedPorts(values map[int]bool) []int {
 	return ports
 }
 
-func parseUFWDefaults(text string) (string, string, string) {
-	incoming, outgoing, routed := "", "", ""
-	re := regexp.MustCompile(`(?i)default:\s*([^,]+)\s*\(incoming\),\s*([^,]+)\s*\(outgoing\)(?:,\s*([^\n]+)\s*\(routed\))?`)
-	if m := re.FindStringSubmatch(text); len(m) > 0 {
-		incoming = strings.TrimSpace(m[1])
-		outgoing = strings.TrimSpace(m[2])
-		if len(m) > 3 {
-			routed = strings.TrimSpace(m[3])
-		}
-	}
-	return incoming, outgoing, routed
-}
-
-// ── UFW rule parsing helpers ──
-
-func parseUFWAddedRules(text string) []HostFirewallRule {
-	var rules []HostFirewallRule
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || !strings.HasPrefix(line, "ufw ") {
-			continue
-		}
-		rule, ok := parseUFWAddedRuleLine(line)
-		if ok {
-			rules = append(rules, rule)
-		}
-	}
-	return rules
-}
-
-func parseUFWAddedRuleLine(line string) (HostFirewallRule, bool) {
-	fields := shellLikeFields(line)
-	if len(fields) < 3 || fields[0] != "ufw" {
-		return HostFirewallRule{}, false
-	}
-	rule := HostFirewallRule{Raw: line, Action: normalizeHostFirewallAction(fields[1]), SourceCIDR: ""}
-	if rule.Action == "" {
-		return HostFirewallRule{}, false
-	}
-	commentIndex := indexOfString(fields, "comment")
-	if commentIndex >= 0 && commentIndex+1 < len(fields) {
-		rule.Comment = fields[commentIndex+1]
-		fields = fields[:commentIndex]
-	}
-	if len(fields) >= 6 && fields[2] == "from" {
-		rule.SourceCIDR = strings.TrimSpace(fields[3])
-		portIndex := indexOfString(fields, "port")
-		protoIndex := indexOfString(fields, "proto")
-		if portIndex < 0 || portIndex+1 >= len(fields) {
-			return HostFirewallRule{}, false
-		}
-		start, end, proto, ok := parseHostFirewallPortSpec(fields[portIndex+1])
-		if !ok {
-			return HostFirewallRule{}, false
-		}
-		if protoIndex >= 0 && protoIndex+1 < len(fields) {
-			proto = normalizeHostFirewallProtocol(fields[protoIndex+1])
-		}
-		rule.PortStart, rule.PortEnd, rule.Protocol = start, end, proto
-	} else {
-		start, end, proto, ok := parseHostFirewallPortSpec(fields[2])
-		if !ok {
-			return HostFirewallRule{}, false
-		}
-		rule.PortStart, rule.PortEnd, rule.Protocol = start, end, proto
-	}
-	if rule.Protocol == "" {
-		rule.Protocol = "both"
-	}
-	rule.ManagedByPanel = strings.HasPrefix(rule.Comment, hostFirewallPanelPrefix)
-	rule.ID = hostFirewallRuleID(rule)
-	return rule, true
-}
-
-func parseHostFirewallPortSpec(spec string) (int, int, string, bool) {
-	spec = strings.TrimSpace(spec)
-	proto := ""
-	if strings.Contains(spec, "/") {
-		parts := strings.SplitN(spec, "/", 2)
-		spec = parts[0]
-		proto = normalizeHostFirewallProtocol(parts[1])
-	}
-	start, end, ok := parseHostFirewallPortRange(spec)
-	return start, end, proto, ok
-}
-
-func parseHostFirewallPortRange(text string) (int, int, bool) {
-	text = strings.TrimSpace(strings.ReplaceAll(text, "-", ":"))
-	if text == "" {
-		return 0, 0, false
-	}
-	parts := strings.Split(text, ":")
-	if len(parts) > 2 {
-		return 0, 0, false
-	}
-	start, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, false
-	}
-	end := start
-	if len(parts) == 2 {
-		end, err = strconv.Atoi(parts[1])
-		if err != nil {
-			return 0, 0, false
-		}
-	}
-	if start < 1 || start > 65535 || end < start || end > 65535 {
-		return 0, 0, false
-	}
-	return start, end, true
-}
-
-// ── Host firewall rule manipulation helpers ──
+// ── Host firewall rule manipulation helpers（与后端无关的编排/归一化） ──
 
 func normalizeHostFirewallRuleRequests(requests []HostFirewallRuleRequest) []HostFirewallRule {
 	var rules []HostFirewallRule
@@ -418,6 +281,7 @@ func markHostFirewallProtection(rule *HostFirewallRule, sshPorts, panelPorts []i
 	}
 }
 
+// ensureHostFirewallRule 编排：去重后委托后端 EnsureRule（§4.2 统一规则表示）。
 func ensureHostFirewallRule(rule HostFirewallRule) error {
 	if err := validateHostFirewallRule(rule); err != nil {
 		return err
@@ -428,39 +292,12 @@ func ensureHostFirewallRule(rule HostFirewallRule) error {
 			return nil
 		}
 	}
-	args := buildUFWRuleArgs(rule, false)
-	result := utils.ExecCommand("ufw", args...)
-	if result.Error != nil {
-		return fmt.Errorf("写入 UFW 规则失败: %s", result.Stderr)
-	}
-	return nil
+	return resolveBackend().EnsureRule(rule)
 }
 
+// deleteHostFirewallRuleBySpec 委托后端 DeleteRule。
 func deleteHostFirewallRuleBySpec(rule HostFirewallRule) error {
-	args := buildUFWRuleArgs(rule, true)
-	result := utils.ExecCommand("ufw", args...)
-	if result.Error != nil {
-		return fmt.Errorf("删除 UFW 规则失败: %s", result.Stderr)
-	}
-	return nil
-}
-
-func buildUFWRuleArgs(rule HostFirewallRule, delete bool) []string {
-	portSpec := hostFirewallPortSpec(rule)
-	args := []string{}
-	if delete {
-		args = append(args, "delete")
-	}
-	args = append(args, rule.Action)
-	if strings.TrimSpace(rule.SourceCIDR) != "" {
-		args = append(args, "from", strings.TrimSpace(rule.SourceCIDR), "to", "any", "port", portSpec, "proto", rule.Protocol)
-	} else {
-		args = append(args, portSpec+"/"+rule.Protocol)
-	}
-	if !delete && strings.TrimSpace(rule.Comment) != "" {
-		args = append(args, "comment", strings.TrimSpace(rule.Comment))
-	}
-	return args
+	return resolveBackend().DeleteRule(rule)
 }
 
 func hostFirewallPortSpec(rule HostFirewallRule) string {
@@ -496,8 +333,10 @@ func hostFirewallRuleEquivalent(a, b HostFirewallRule) bool {
 		strings.TrimSpace(a.SourceCIDR) == strings.TrimSpace(b.SourceCIDR)
 }
 
+// hostFirewallRuleID 规则稳定 ID（M3：与 mergeHostFirewallRules 去重键同口径，仅含规格、不含备注）。
+// 规格等价（action/proto/ports/source）即视为同一条规则，备注为元数据不参与身份判定。
 func hostFirewallRuleID(rule HostFirewallRule) string {
-	base := fmt.Sprintf("%s|%s|%d|%d|%s|%s", rule.Action, rule.Protocol, rule.PortStart, rule.PortEnd, strings.TrimSpace(rule.SourceCIDR), strings.TrimSpace(rule.Comment))
+	base := fmt.Sprintf("%s|%s|%d|%d|%s", rule.Action, rule.Protocol, rule.PortStart, rule.PortEnd, strings.TrimSpace(rule.SourceCIDR))
 	sum := sha1.Sum([]byte(base))
 	return hex.EncodeToString(sum[:])[:16]
 }
@@ -591,4 +430,17 @@ func indexOfString(values []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// sortHostFirewallRules 按保护优先 → 端口 → ID 排序（原 ListHostFirewallRules 逻辑）。
+func sortHostFirewallRules(rules []HostFirewallRule) {
+	sort.SliceStable(rules, func(i, j int) bool {
+		if rules[i].Protected != rules[j].Protected {
+			return rules[i].Protected
+		}
+		if rules[i].PortStart != rules[j].PortStart {
+			return rules[i].PortStart < rules[j].PortStart
+		}
+		return rules[i].ID < rules[j].ID
+	})
 }

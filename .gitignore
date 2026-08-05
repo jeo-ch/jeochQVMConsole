@@ -25,6 +25,7 @@ scripts/
 # Build artifacts
 release/
 bundled/
+server/service/diagnostics/compat-manifest.json
 !.vscode/extensions.json
 .idea
 .DS_Store

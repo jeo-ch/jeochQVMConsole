@@ -31,33 +31,43 @@ func (p *x8664Profile) DefaultCPUModel(virtType string) string {
 func (p *x8664Profile) UEFIFirmwarePath(secureBoot bool) string {
 	if secureBoot {
 		candidates := []string{
+			"/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd",
+			"/usr/share/edk2/ovmf/OVMF_CODE.ms.fd",
+			"/usr/share/edk2/ovmf/OVMF_CODE.4m.fd",
 			"/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
 			"/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
 			"/usr/share/OVMF/OVMF_CODE_4M.sec.fd",
 		}
-		return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_CODE_4M.ms.fd")
+		return pickFirstExistingPath(candidates, "/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd")
 	}
 	candidates := []string{
+		"/usr/share/edk2/ovmf/OVMF_CODE.4m.fd",
+		"/usr/share/edk2/ovmf/OVMF_CODE.fd",
 		"/usr/share/OVMF/OVMF_CODE_4M.fd",
 		"/usr/share/OVMF/OVMF_CODE.fd",
 	}
-	return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_CODE_4M.fd")
+	return pickFirstExistingPath(candidates, "/usr/share/edk2/ovmf/OVMF_CODE.fd")
 }
 
 func (p *x8664Profile) UEFIVarsTemplatePath(secureBoot bool) string {
 	if secureBoot {
 		candidates := []string{
+			"/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd",
+			"/usr/share/edk2/ovmf/OVMF_VARS.ms.fd",
+			"/usr/share/edk2/ovmf/OVMF_VARS.4m.fd",
 			"/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
 			"/usr/share/OVMF/OVMF_VARS_4M.secboot.fd",
 			"/usr/share/OVMF/OVMF_VARS.ms.fd",
 		}
-		return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_VARS_4M.ms.fd")
+		return pickFirstExistingPath(candidates, "/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd")
 	}
 	candidates := []string{
+		"/usr/share/edk2/ovmf/OVMF_VARS.4m.fd",
+		"/usr/share/edk2/ovmf/OVMF_VARS.fd",
 		"/usr/share/OVMF/OVMF_VARS_4M.fd",
 		"/usr/share/OVMF/OVMF_VARS.fd",
 	}
-	return pickFirstExistingPath(candidates, "/usr/share/OVMF/OVMF_VARS_4M.fd")
+	return pickFirstExistingPath(candidates, "/usr/share/edk2/ovmf/OVMF_VARS.fd")
 }
 
 func init() {

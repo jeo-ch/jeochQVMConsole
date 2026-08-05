@@ -84,6 +84,14 @@ export interface HostFirewallRule {
 export interface HostFirewallStatus {
   active: boolean
   ufw_available?: boolean
+  /** ufw / firewalld / none（§5.5/M0） */
+  backend?: string
+  /** UFW / Firewalld / 不可用 */
+  backend_name?: string
+  /** legacy | nf_tables | ""（#O，iptables 后端判据） */
+  ip_backend?: string
+  /** FIREWALLD_NOT_RUNNING 等（#R，错误 hint） */
+  error_code?: string
   default_incoming?: string
   default_outgoing?: string
   default_routed?: string
@@ -195,6 +203,11 @@ export function getHostFirewallStatus() {
   return service.get<unknown, ApiResponse<HostFirewallStatus>>('/firewall/host/status', {
     silent: true,
   })
+}
+
+/** 清除后端探测缓存并重新探测（#R：前端「重新检测」按钮） */
+export function resetHostFirewallBackendCache() {
+  return service.post<unknown, ApiResponse<HostFirewallStatus>>('/firewall/host/reset-backend')
 }
 
 /** 启用前预览：返回推荐规则（SSH/面板保护规则 + 端口转发放通） */

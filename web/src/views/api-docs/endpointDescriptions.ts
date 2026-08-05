@@ -662,7 +662,11 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
     summary: '设置端口转发防火墙策略',
     body: 'JSON: enabled, mode, allowed_regions, blocked_regions',
   },
-  'GET /firewall/host/status': { summary: '读取宿主机防火墙状态' },
+  'GET /firewall/host/status': { summary: '读取宿主机防火墙状态（含 backend/backend_name/ip_backend/error_code）' },
+  'POST /firewall/host/reset-backend': {
+    summary: '清除防火墙后端探测缓存并重新检测',
+    notes: ['返回刷新后的宿主机防火墙状态。'],
+  },
   'POST /firewall/host/enable/preview': {
     summary: '预览启用宿主机防火墙',
     body: 'JSON: mode, allow_ssh, allow_panel, extra_rules',

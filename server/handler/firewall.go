@@ -166,6 +166,18 @@ func GetHostFirewallStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok", "data": status})
 }
 
+// ResetHostFirewallBackendCache 清除后端探测缓存并重新探测（#R：前端「重新检测」按钮）
+func ResetHostFirewallBackendCache(c *gin.Context) {
+	service.ResetFirewallBackendCache()
+	// 重新探测一次，立即反馈最新可用性
+	status, err := service.GetHostFirewallStatus()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "后端探测已刷新", "data": status})
+}
+
 func PreviewEnableHostFirewall(c *gin.Context) {
 	var req service.HostFirewallEnableRequest
 	_ = c.ShouldBindJSON(&req)

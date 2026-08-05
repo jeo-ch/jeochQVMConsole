@@ -309,7 +309,27 @@ export function trimUserStorage() {
 export interface PublicSystemInfo {
   arch?: string
   qemu_spice?: boolean
+  /** 国产化组件诊断（v0.9.3/#Q） */
+  firewall?: {
+    backend?: string
+    available?: boolean
+    active?: boolean
+    version?: string
+    ip_backend?: string
+    nm_managed?: boolean
+    docker_compatible?: boolean
+    error_code?: string
+    upgrade_advice?: UpgradeAdvice
+  }
   [key: string]: unknown
+}
+
+/** 组件升级提示（#Q，§4.1）：多命中时前端按优先级 firewalld_unsupported > firewalld_old > glibc_low > selinux 取一条 */
+export interface UpgradeAdvice {
+  firewalld_unsupported?: boolean
+  firewalld_old?: boolean
+  glibc_low_for_native?: boolean
+  selinux_enforcing?: boolean
 }
 
 /** 获取宿主机公开系统信息 */

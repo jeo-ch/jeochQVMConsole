@@ -118,34 +118,44 @@ func GetVMNVRAMPath(name string) string {
 // ResolveOVMFLoaderPath 根据是否启用安全引导选择相应的 OVMF Code 固件路径。
 func ResolveOVMFLoaderPath(secure bool) string {
 	candidates := []string{
+		"/usr/share/edk2/ovmf/OVMF_CODE.4m.fd",
+		"/usr/share/edk2/ovmf/OVMF_CODE.fd",
 		"/usr/share/OVMF/OVMF_CODE_4M.fd",
 		"/usr/share/OVMF/OVMF_CODE.fd",
 	}
-	fallback := "/usr/share/OVMF/OVMF_CODE_4M.fd"
+	fallback := "/usr/share/edk2/ovmf/OVMF_CODE.fd"
 	if secure {
 		candidates = []string{
+			"/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd",
+			"/usr/share/edk2/ovmf/OVMF_CODE.ms.fd",
+			"/usr/share/edk2/ovmf/OVMF_CODE.4m.fd",
 			"/usr/share/OVMF/OVMF_CODE_4M.ms.fd",
 			"/usr/share/OVMF/OVMF_CODE_4M.secboot.fd",
 			"/usr/share/OVMF/OVMF_CODE.secboot.fd",
 		}
-		fallback = "/usr/share/OVMF/OVMF_CODE_4M.ms.fd"
+		fallback = "/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd"
 	}
 	return pickFirstExistingPath(candidates, fallback)
 }
 
 func ResolveOVMFVarsTemplatePath(secure bool) string {
 	candidates := []string{
+		"/usr/share/edk2/ovmf/OVMF_VARS.4m.fd",
+		"/usr/share/edk2/ovmf/OVMF_VARS.fd",
 		"/usr/share/OVMF/OVMF_VARS_4M.fd",
 		"/usr/share/OVMF/OVMF_VARS.fd",
 	}
-	fallback := "/usr/share/OVMF/OVMF_VARS_4M.fd"
+	fallback := "/usr/share/edk2/ovmf/OVMF_VARS.fd"
 	if secure {
 		candidates = []string{
+			"/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd",
+			"/usr/share/edk2/ovmf/OVMF_VARS.ms.fd",
+			"/usr/share/edk2/ovmf/OVMF_VARS.4m.fd",
 			"/usr/share/OVMF/OVMF_VARS_4M.ms.fd",
-			"/usr/share/OVMF/OVMF_VARS.ms.fd",
 			"/usr/share/OVMF/OVMF_VARS_4M.secboot.fd",
+			"/usr/share/OVMF/OVMF_VARS.ms.fd",
 		}
-		fallback = "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
+		fallback = "/usr/share/edk2/ovmf/OVMF_VARS.secboot.fd"
 	}
 	return pickFirstExistingPath(candidates, fallback)
 }
