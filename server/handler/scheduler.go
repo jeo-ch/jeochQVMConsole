@@ -82,6 +82,56 @@ func GetSchedulerEventList(c *gin.Context) {
 	})
 }
 
+// GetVMWatchdogEventList 获取看门狗事件列表（M8.9 / §14 P2-9，前端"看门狗事件"页）。
+func GetVMWatchdogEventList(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	start, err := parseSchedulerEventTime(c.Query("start"), false)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "开始时间格式无效"})
+		return
+	}
+	end, err := parseSchedulerEventTime(c.Query("end"), true)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "结束时间格式无效"})
+		return
+	}
+
+	list, total, err := model.ListVMWatchdogEvents(model.VMWatchdogEventFilter{
+		Page:     page,
+		PageSize: pageSize,
+		Status:   strings.TrimSpace(c.Query("status")),
+		VMName:   strings.TrimSpace(c.Query("vm_name")),
+		Start:    start,
+		End:      end,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "获取看门狗事件失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "ok",
+		"data": gin.H{
+			"list":      list,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
+}
+
 // SSESchedulerEvents 实时推送调度事件。
 func SSESchedulerEvents(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")

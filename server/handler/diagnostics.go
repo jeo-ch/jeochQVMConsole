@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"kvm_console/service"
 	"kvm_console/service/diagnostics"
 )
 
@@ -23,6 +24,35 @@ func GetDiagnosticCategories(c *gin.Context) {
 		"message": "ok",
 		"data":    categories,
 	})
+}
+
+// GetOsSupport 返回各发行版的支持等级（S/A/B/C）与认证硬件矩阵（M8.11 / §14 P3-11）
+// C1：附带当前系统识别（current_os），前端据此高亮当前发行版支持等级徽标。
+func GetOsSupport(c *gin.Context) {
+	osSupport := diagnostics.GetOsSupport()
+	cur := diagnostics.DetectCurrentOsSupport()
+	var currentOS *diagnostics.OsSupportEntry
+	if cur != nil {
+		entry := *cur
+		currentOS = &entry
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "ok",
+		"data": gin.H{
+			"os_compat":  osSupport,
+			"meta":       diagnostics.SupportLevelMetas,
+			"current_os": currentOS,
+			"os_release": diagnostics.CurrentOsReleaseName(),
+		},
+	})
+}
+
+// RefreshDiagnostics 重新探测组件版本健康度并返回最新结果（M7.2 / §5.11.5 前端「刷新」按钮，
+// H3：冷却期内复用缓存，避免高频点击触发多次全量探测）
+func RefreshDiagnostics(c *gin.Context) {
+	health := service.RefreshComponentHealth()
+	c.JSON(http.StatusOK, gin.H{"code": 200, "message": "组件版本健康度已刷新", "data": health})
 }
 
 // ExportDiagnostics 收集诊断信息并返回 ZIP

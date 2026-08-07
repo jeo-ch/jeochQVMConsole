@@ -823,3 +823,44 @@ body[theme-mode='dark'] .qvm-status-banner.error {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============ 健康状态灯（M8.10 / §14 P2-10） ============ */
+.qvm-health-light {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  vertical-align: middle;
+  cursor: default;
+}
+.qvm-health-light-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--qvm-text-2);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+.qvm-health-light-dot.green {
+  background: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.55);
+}
+.qvm-health-light-dot.yellow {
+  background: #f5a623;
+  box-shadow: 0 0 6px rgba(245, 166, 35, 0.55);
+}
+.qvm-health-light-dot.red {
+  background: #e5484d;
+  box-shadow: 0 0 6px rgba(229, 72, 77, 0.55);
+  animation: qvm-pulse-red 1.6s ease-out infinite;
+}
+@keyframes qvm-pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(229, 72, 77, 0);
+  }
+}
+body[theme-mode='dark'] .qvm-health-light-dot {
+  background: #6b7a90;
+}

@@ -68,6 +68,9 @@ export interface SettingsForm {
   maintenance_mode: boolean
   maintenance_service_units: string
   maintenance_vm_shutdown_timeout_seconds: number
+  vm_watchdog_enabled: boolean
+  vm_watchdog_interval_seconds: number
+  vm_watchdog_max_misses: number
   smtp_host: string
   smtp_port: number
   smtp_username: string
@@ -136,6 +139,9 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   maintenance_mode: false,
   maintenance_service_units: DEFAULT_MAINTENANCE_SERVICE_UNITS,
   maintenance_vm_shutdown_timeout_seconds: 40,
+  vm_watchdog_enabled: true,
+  vm_watchdog_interval_seconds: 60,
+  vm_watchdog_max_misses: 3,
   smtp_host: '',
   smtp_port: 587,
   smtp_username: '',
@@ -187,6 +193,10 @@ export function validateSettingsForm(form: SettingsForm): string | null {
     form.maintenance_vm_shutdown_timeout_seconds > 3600
   )
     return '维护模式虚拟机关机等待时间需在 5 - 3600 秒之间'
+  if (form.vm_watchdog_interval_seconds < 10 || form.vm_watchdog_interval_seconds > 3600)
+    return '看门狗探测间隔需在 10 - 3600 秒之间'
+  if (form.vm_watchdog_max_misses < 1 || form.vm_watchdog_max_misses > 20)
+    return '看门狗失联次数需在 1 - 20 之间'
   return null
 }
 
@@ -236,6 +246,9 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     maintenance_service_units:
       form.maintenance_service_units?.trim() || DEFAULT_MAINTENANCE_SERVICE_UNITS,
     maintenance_vm_shutdown_timeout_seconds: form.maintenance_vm_shutdown_timeout_seconds,
+    vm_watchdog_enabled: form.vm_watchdog_enabled,
+    vm_watchdog_interval_seconds: form.vm_watchdog_interval_seconds,
+    vm_watchdog_max_misses: form.vm_watchdog_max_misses,
     smtp_host: form.smtp_host,
     smtp_port: form.smtp_port,
     smtp_username: form.smtp_username,

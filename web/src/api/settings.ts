@@ -288,6 +288,70 @@ export function exportDiagnostics(data: { categories: string[] }) {
   })
 }
 
+// ==================== 组件版本健康度（M7.2 / §5.11.5） ====================
+
+/** 单个组件健康度条目 */
+export interface ComponentHealthItem {
+  component: string
+  category: string
+  status: 'healthy' | 'warning' | 'critical' | 'info'
+  current_version: string
+  required_version: string
+  recommended_version: string
+  message: string
+  upgrade_hint: string
+}
+
+/** 组件版本健康度聚合结果 */
+export interface ComponentHealth {
+  overall: 'healthy' | 'warning' | 'critical'
+  last_check: string
+  items: ComponentHealthItem[]
+}
+
+/** 重新探测组件版本健康度（POST /settings/diagnostics/refresh） */
+export function refreshDiagnostics() {
+  return service.post<unknown, ApiResponse<ComponentHealth>>(
+    '/settings/diagnostics/refresh',
+    {},
+    { silent: true },
+  )
+}
+
+/** 发行版支持等级条目（compat-manifest os_compat，M8.11/§14 P3-11） */
+export interface OsSupportEntry {
+  firewall?: string
+  glibc?: string
+  recommended_tier?: string
+  /** S=官方全量回归、A=核心功能回归、B=社区自测、C=理论兼容 */
+  support_level: 'S' | 'A' | 'B' | 'C'
+  certified_hardware: string[]
+}
+
+/** 支持等级元数据（S/A/B/C → 中文名 + 描述） */
+export interface SupportLevelMeta {
+  level: 'S' | 'A' | 'B' | 'C'
+  name: string
+  description: string
+}
+
+/** 发行版支持等级矩阵响应 */
+export interface OsSupportResponse {
+  os_compat: Record<string, OsSupportEntry>
+  meta: SupportLevelMeta[]
+  /** 当前系统识别（C1）：命中 os_compat 则为其支持等级，否则 null */
+  current_os?: OsSupportEntry | null
+  /** 当前系统 PRETTY_NAME */
+  os_release?: string
+}
+
+/** 获取各发行版支持等级矩阵（GET /settings/diagnostics/os-support） */
+export function getOsSupport() {
+  return service.get<unknown, ApiResponse<OsSupportResponse>>('/settings/diagnostics/os-support', {
+    silent: true,
+  })
+}
+
 // ==================== 用户存储维护 ====================
 
 /** 存储回收结果 */
@@ -309,6 +373,13 @@ export function trimUserStorage() {
 export interface PublicSystemInfo {
   arch?: string
   qemu_spice?: boolean
+  /** CPU 指令集与厂商（管理员专属字段，M8.1/P0-1 新增 cpu_vendor） */
+  cpu?: {
+    avx2?: boolean
+    fma?: boolean
+    vendor?: string
+    cpu_vendor?: string
+  }
   /** 国产化组件诊断（v0.9.3/#Q） */
   firewall?: {
     backend?: string
@@ -321,6 +392,8 @@ export interface PublicSystemInfo {
     error_code?: string
     upgrade_advice?: UpgradeAdvice
   }
+  /** 组件版本健康度（M7.2/§5.11.5，v0.9.8 新增） */
+  component_health?: ComponentHealth
   [key: string]: unknown
 }
 
@@ -332,9 +405,18 @@ export interface UpgradeAdvice {
   selinux_enforcing?: boolean
 }
 
-/** 获取宿主机公开系统信息 */
+/** 获取宿主机公开系统信息（M5：并发单飞去重——多个页面同时挂载时只发起一次请求，后端缓存已进一步缓解） */
+let publicSystemInfoInFlight: Promise<ApiResponse<PublicSystemInfo>> | null = null
+
 export function getPublicSystemInfo() {
-  return service.get<unknown, ApiResponse<PublicSystemInfo>>('/system-info', { silent: true })
+  if (!publicSystemInfoInFlight) {
+    publicSystemInfoInFlight = service
+      .get<unknown, ApiResponse<PublicSystemInfo>>('/system-info', { silent: true })
+      .finally(() => {
+        publicSystemInfoInFlight = null
+      })
+  }
+  return publicSystemInfoInFlight
 }
 
 /** 获取宿主机 CPU 物理核心数（CPU 热添加上限） */

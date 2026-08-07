@@ -85,6 +85,24 @@ func IsLibvirtRPCAvailable() bool {
 	return available
 }
 
+// SmokeConnectLibvirt 用于安装期冒烟自检（--smoke-selfcheck）：仅建立一次
+// 连接并握手即断开，验证 go-libvirt 的 RPC 路径在当前 glibc 下可解析。
+// libvirtd 未启动时返回错误，调用方决定是否视为致命。
+func SmokeConnectLibvirt(timeout time.Duration) error {
+	conn, err := net.DialTimeout("unix", libvirtSocket, timeout)
+	if err != nil {
+		return fmt.Errorf("连接 unix socket %s 失败: %w", libvirtSocket, err)
+	}
+	defer conn.Close()
+
+	l := libvirt.New(conn)
+	if err := l.Connect(); err != nil {
+		return fmt.Errorf("RPC 握手失败: %w", err)
+	}
+	defer l.Disconnect()
+	return nil
+}
+
 // CloseLibvirt 关闭 go-libvirt 连接（程序退出时调用）
 func CloseLibvirt() {
 	libvirtConnMu.Lock()

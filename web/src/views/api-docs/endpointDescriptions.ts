@@ -39,7 +39,7 @@ export const moduleGroups: { name: string; description: string; prefixes: string
   { name: '用户管理', description: '管理员管理用户、配额、轻量云登记和 SSH。', prefixes: ['/user'] },
   { name: '用户自助与我的存储', description: '普通用户查询配额、管理自己的 VM 和存储。', prefixes: ['/self'] },
   { name: '宿主机', description: '宿主机监控和宿主机级 KVM/KSM/zRAM/硬件直通参数。', prefixes: ['/host'] },
-  { name: '任务与调度', description: '任务队列、任务 SSE 和调度器事件。', prefixes: ['/task', '/scheduler'] },
+  { name: '任务与调度', description: '任务队列、任务 SSE、调度器事件和 VM 看门狗事件。', prefixes: ['/task', '/scheduler', '/vm-watchdog'] },
 ]
 
 /** 兜底分组名 */
@@ -887,10 +887,28 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'GET /scheduler/events': { summary: '获取调度事件列表', query: ['page', 'page_size', 'type', 'status', 'start', 'end'] },
   'GET /scheduler/events/sse': { summary: '调度事件 SSE 推送', query: ['token'], response: 'text/event-stream。' },
 
+  // ==================== VM 看门狗 ====================
+  'GET /vm-watchdog/events': {
+    summary: '获取 VM 看门狗事件列表（Guest 失联自动硬重置等记录）',
+    query: ['page', 'page_size', 'status', 'vm_name', 'start', 'end'],
+    response:
+      'data: list[{id,vm_name,status(reset/warning/recovered),reason,result_message,created_at}], total, page, page_size。',
+  },
+  'GET /settings/diagnostics/os-support': {
+    summary: '获取各发行版支持等级 S/A/B/C 与认证硬件矩阵',
+    response: 'data: os_compat{发行版:{support_level,certified_hardware,...}}, meta[等级定义]。',
+  },
+
   // ==================== 其他 ====================
   'GET /cpu-affinity-presets': { summary: '获取 CPU 亲和性预设列表', response: 'data: presets[{name,value}]。' },
   'GET /system-info': {
-    summary: '获取系统运行环境信息',
-    response: 'data: os, distro, kernel, arch, hostname, num_cpu, go_version, qemu, libvirt, uptime 等。',
+    summary: '获取系统运行环境信息（含国产化组件诊断）',
+    response:
+      'data: os, distro, kernel, arch, hostname, num_cpu, go_version, qemu, libvirt, uptime 等；' +
+      'glibc（glibc 版本）、cpu.avx2/cpu.fma（CPU 指令集）、cpu.cpu_vendor（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng，国产 CPU 厂商）、' +
+      'selinux.mode（enforcing/permissive/disabled）、' +
+      'firewall.backend/available/active/version/ip_backend（legacy|nf_tables）/nm_managed/docker_compatible/error_code、' +
+      'firewall.upgrade_advice（firewalld_unsupported/firewalld_old/glibc_low_for_native/selinux_enforcing，供防火墙页 Banner）、' +
+      'component_health（overall/last_check/items[19项]，组件版本健康度，诊断页展示，含 cpu_vendor 白名单判定）。',
   },
 }

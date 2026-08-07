@@ -33,7 +33,19 @@ import (
 var Version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "host-zram-apply" {
+	// 版本输出与安装期冒烟自检（供 build.sh/install.sh 在切档前验证当前
+	// glibc 环境下 CGO（SQLite）与 go-libvirt RPC 符号可解析，P0-3）。
+	firstArg := ""
+	if len(os.Args) > 1 {
+		firstArg = strings.TrimPrefix(os.Args[1], "--")
+	}
+	switch {
+	case firstArg == "version":
+		fmt.Println(Version)
+		os.Exit(0)
+	case firstArg == "smoke-selfcheck":
+		os.Exit(runSmokeSelfCheck())
+	case len(os.Args) > 1 && os.Args[1] == "host-zram-apply":
 		if err := service.ApplyHostZRAMPersistentProfile(); err != nil {
 			log.Fatalf("恢复 zRAM 失败: %v", err)
 		}
@@ -104,6 +116,8 @@ func main() {
 	service.StartJWTSecretRotator()
 	service.StartExpiredUploadSessionCleanup() // 清理过期分片上传会话
 	service.StartPasswordBreachScheduler()
+	service.StartVMWatchdog()  // M8.9/§14 P2-9：VM 看门狗（Guest Agent 连续失联自动硬重置 + 大页建议）
+	service.StartHealthProbe() // M8.10/§14 P2-10：周期健康探针（每分钟写 .health/latest.json，Dashboard 状态灯轮询）
 
 	// 同步 SSH 拒绝配置（确保与数据库状态一致）
 	service.SyncSSHDenyConfig()
@@ -136,7 +150,35 @@ func main() {
 	}
 }
 
-// registerTaskHandlers 注册异步任务处理器
+// runSmokeSelfCheck 安装期冒烟自检（P0-3）：验证 CGO 依赖在当前 glibc 环境
+// 可正常加载，防止「理论兼容 ≠ 实测通过」（低版本 glibc 上 Symbol not found）。
+// 仅做轻量探针，不初始化配置/日志/数据库，避免与正式启动互相干扰。
+func runSmokeSelfCheck() int {
+	// 1. SQLite: 打开内存库并 AutoMigrate 一个空模型，验证 gorm/sqlite CGO 符号可解析。
+	db, err := model.OpenSQLiteMemory()
+	if err != nil {
+		log.Printf("[smoke-selfcheck] SQLite 初始化失败: %v", err)
+		return 1
+	}
+	if err := db.AutoMigrate(&smokeProbe{}); err != nil {
+		log.Printf("[smoke-selfcheck] SQLite AutoMigrate 失败: %v", err)
+		return 1
+	}
+
+	// 2. libvirt: 建立一次 RPC 连接并握手（2s 超时），验证 go-libvirt 符号可用。
+	//    libvirtd 未启动不应视为部署阻断，仅告警。
+	if err := libvirt_rpc.SmokeConnectLibvirt(2 * time.Second); err != nil {
+		log.Printf("[smoke-selfcheck] libvirt 连接不可用（非致命，可由面板运行期降级）: %v", err)
+	}
+
+	log.Printf("[smoke-selfcheck] 自检通过")
+	return 0
+}
+
+// smokeProbe 仅用于冒烟自检的占位模型。
+type smokeProbe struct {
+	ID uint `gorm:"primaryKey"`
+}
 func registerTaskHandlers() {
 	// 克隆任务（支持取消）
 	taskqueue.RegisterHandler(model.TaskTypeClone, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {

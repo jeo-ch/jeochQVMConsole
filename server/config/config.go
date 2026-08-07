@@ -106,6 +106,14 @@ type Config struct {
 	MaintenanceServiceUnits string `json:"maintenance_service_units"`
 	// 维护模式关闭 VM 时的优雅关机等待时间（秒）
 	MaintenanceVMShutdownTimeoutSeconds int `json:"maintenance_vm_shutdown_timeout_seconds"`
+	// VM 看门狗配置（M8.9 / P2-9）
+	VMWatchdogEnabled         bool `json:"vm_watchdog_enabled"`
+	VMWatchdogIntervalSeconds int  `json:"vm_watchdog_interval_seconds"`
+	VMWatchdogMaxMisses       int  `json:"vm_watchdog_max_misses"`
+	// 健康探针目录（M8.10 / P2-10），可经 KVM_HEALTH_DIR 覆盖，默认 ${INSTALL_DIR}/.health
+	HealthDir string `json:"health_dir"`
+	// 面板版本号（构建期注入，供健康探针上报）
+	AppVersion string `json:"app_version"`
 	// SMTP 配置
 	SMTPHost           string `json:"smtp_host"`
 	SMTPPort           int    `json:"smtp_port"`
@@ -250,6 +258,11 @@ func Init() {
 		MaintenanceMode:                       getEnvBool("KVM_MAINTENANCE_MODE", false),
 		MaintenanceServiceUnits:               getEnv("KVM_MAINTENANCE_SERVICE_UNITS", defaultMaintenanceServiceUnits),
 		MaintenanceVMShutdownTimeoutSeconds:   getEnvInt("KVM_MAINTENANCE_VM_SHUTDOWN_TIMEOUT_SECONDS", 40),
+		VMWatchdogEnabled:                     getEnvBool("KVM_VM_WATCHDOG_ENABLED", true),
+		VMWatchdogIntervalSeconds:             getEnvInt("KVM_VM_WATCHDOG_INTERVAL_SECONDS", 60),
+		VMWatchdogMaxMisses:                   getEnvInt("KVM_VM_WATCHDOG_MAX_MISSES", 3),
+		HealthDir:                             getEnv("KVM_HEALTH_DIR", ""),
+		AppVersion:                            getEnv("APP_VERSION", ""),
 		SMTPHost:                              getEnv("KVM_SMTP_HOST", ""),
 		SMTPPort:                              getEnvInt("KVM_SMTP_PORT", 587),
 		SMTPUsername:                          getEnv("KVM_SMTP_USERNAME", ""),
@@ -487,6 +500,11 @@ var PersistableKeys = []string{
 	"maintenance_mode",
 	"maintenance_service_units",
 	"maintenance_vm_shutdown_timeout_seconds",
+	"vm_watchdog_enabled",
+	"vm_watchdog_interval_seconds",
+	"vm_watchdog_max_misses",
+	"health_dir",
+	"app_version",
 	"smtp_host",
 	"smtp_port",
 	"smtp_username",
@@ -564,6 +582,11 @@ var keyToEnvVar = map[string]string{
 	"maintenance_mode":          "KVM_MAINTENANCE_MODE",
 	"maintenance_service_units": "KVM_MAINTENANCE_SERVICE_UNITS",
 	"maintenance_vm_shutdown_timeout_seconds": "KVM_MAINTENANCE_VM_SHUTDOWN_TIMEOUT_SECONDS",
+	"vm_watchdog_enabled":                            "KVM_VM_WATCHDOG_ENABLED",
+	"vm_watchdog_interval_seconds":                   "KVM_VM_WATCHDOG_INTERVAL_SECONDS",
+	"vm_watchdog_max_misses":                         "KVM_VM_WATCHDOG_MAX_MISSES",
+	"health_dir":                                     "KVM_HEALTH_DIR",
+	"app_version":                                    "APP_VERSION",
 	"smtp_host":                                 "KVM_SMTP_HOST",
 	"smtp_port":                                 "KVM_SMTP_PORT",
 	"smtp_username":                             "KVM_SMTP_USERNAME",
@@ -698,6 +721,22 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			if v, err := strconv.Atoi(value); err == nil {
 				c.MaintenanceVMShutdownTimeoutSeconds = v
 			}
+		case "vm_watchdog_enabled":
+			if v, err := strconv.ParseBool(value); err == nil {
+				c.VMWatchdogEnabled = v
+			}
+		case "vm_watchdog_interval_seconds":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.VMWatchdogIntervalSeconds = v
+			}
+		case "vm_watchdog_max_misses":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.VMWatchdogMaxMisses = v
+			}
+		case "health_dir":
+			c.HealthDir = value
+		case "app_version":
+			c.AppVersion = value
 		case "smtp_host":
 			c.SMTPHost = value
 		case "smtp_port":
@@ -874,7 +913,12 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"maintenance_mode":          strconv.FormatBool(c.MaintenanceMode),
 		"maintenance_service_units": c.MaintenanceServiceUnits,
 		"maintenance_vm_shutdown_timeout_seconds": strconv.Itoa(c.MaintenanceVMShutdownTimeoutSeconds),
-		"smtp_host":                                 c.SMTPHost,
+		"vm_watchdog_enabled":            strconv.FormatBool(c.VMWatchdogEnabled),
+		"vm_watchdog_interval_seconds":   strconv.Itoa(c.VMWatchdogIntervalSeconds),
+		"vm_watchdog_max_misses":         strconv.Itoa(c.VMWatchdogMaxMisses),
+		"health_dir":                     c.HealthDir,
+		"app_version":                    c.AppVersion,
+		"smtp_host":                      c.SMTPHost,
 		"smtp_port":                                 strconv.Itoa(c.SMTPPort),
 		"smtp_username":                             c.SMTPUsername,
 		"smtp_password_enc":                         c.SMTPPasswordEnc,

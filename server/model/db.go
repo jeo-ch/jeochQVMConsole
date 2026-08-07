@@ -15,6 +15,7 @@ import (
 
 	"kvm_console/config"
 	"kvm_console/logger"
+	"kvm_console/model/migrations"
 )
 
 // gormAppLogger 将 GORM 日志写入 appWriter，不直接输出到 stdout
@@ -54,6 +55,14 @@ func (l *gormAppLogger) Trace(_ context.Context, begin time.Time, fc func() (sql
 // DB 全局数据库实例
 var DB *gorm.DB
 
+// OpenSQLiteMemory 打开一个纯内存 SQLite 连接（不落盘）。
+// 用于 install.sh 的 --smoke-selfcheck 冒烟自检，验证 gorm/sqlite CGO 符号
+// 在当前 glibc 环境下可解析（P0-3，防「Symbol not found」）。
+// 返回独立的 gorm.DB，不修改全局 DB，也不依赖配置文件。
+func OpenSQLiteMemory() (*gorm.DB, error) {
+	return gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL"), &gorm.Config{})
+}
+
 // InitDB 初始化数据库
 func InitDB() {
 	// 确保数据目录存在
@@ -88,11 +97,19 @@ func InitDB() {
 	// 预修复: 在 AutoMigrate 之前清理 vpc_switches.cidr 重复数据并删除旧唯一索引
 	preFixVPCSwitchCIDRIndex()
 
+	// 版本化迁移在 AutoMigrate 之前执行（未应用版本按注册顺序单事务执行）
+	if applied, migErr := migrations.Run(DB); migErr != nil {
+		logger.App.Error("版本化数据库迁移失败", "error", migErr)
+		os.Exit(1)
+	} else if applied > 0 {
+		logger.App.Info("版本化数据库迁移完成", "count", applied)
+	}
+
 	// 自动迁移表结构
 	if err := DB.AutoMigrate(&User{}, &UserAPIKey{}, &VmStatsRecord{}, &PortForwardIP{}, &HostStatsRecord{}, &UserTrafficDaily{}, &SystemSetting{}, &VMCredential{}, &VMCache{}, &AuthActionToken{}, &SecurityChallenge{}, &SchedulerEvent{}, &VMSchedule{}, &NetworkBridge{}, &HostStoragePool{}, &HostNode{},
 		&LightweightVMQuota{}, &LightweightVMTrafficMonthly{}, &LightweightVMRegistration{},
 		&VPCSwitch{}, &VPCSecurityGroup{}, &VPCSecurityGroupRule{}, &VPCVMBinding{}, &VPCSwitchTrafficMonthly{}, &PublicIP{}, &PublicIPBinding{},
-		&VMLock{}, &UploadSession{}); err != nil {
+		&VMLock{}, &UploadSession{}, &VMWatchdogEvent{}); err != nil {
 		logger.App.Error("数据库迁移失败", "error", err)
 		os.Exit(1)
 	}

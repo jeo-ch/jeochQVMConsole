@@ -48,6 +48,7 @@ func Setup() *gin.Engine {
 	{
 		api.GET("/public/settings", handler.GetPublicSettings)
 		api.GET("/public/version", handler.GetVersion)
+		api.GET("/system/health/latest", handler.GetHealthProbeLatest)
 
 		// ==================== 认证（无需登录） ====================
 		auth := api.Group("/auth")
@@ -113,6 +114,8 @@ func Setup() *gin.Engine {
 			settings.POST("/log/export", handler.ExportLogs)
 			settings.GET("/diagnostics/categories", handler.GetDiagnosticCategories)
 			settings.POST("/diagnostics/export", handler.ExportDiagnostics)
+			settings.GET("/diagnostics/os-support", handler.GetOsSupport)     // 各发行版支持等级 S/A/B/C 与认证硬件矩阵（M8.11/§14 P3-11）
+			settings.POST("/diagnostics/refresh", handler.RefreshDiagnostics) // 重新探测组件版本健康度并返回最新结果（M7.2 / §5.11.5）
 			settings.POST("/storage/trim", handler.TrimUserStorage)
 		}
 
@@ -532,6 +535,13 @@ func Setup() *gin.Engine {
 
 			// ==================== CPU 亲和性预设（所有登录用户可读） ====================
 			authorized.GET("/cpu-affinity-presets", handler.GetCPUAffinityPresets)
+
+			// ==================== VM 看门狗事件（管理员） ====================
+			watchdog := authorized.Group("/vm-watchdog/events")
+			watchdog.Use(middleware.AdminMiddleware())
+			{
+				watchdog.GET("", handler.GetVMWatchdogEventList) // 看门狗自动重置等事件列表（M8.9/§14 P2-9）
+			}
 
 			// ==================== 系统运行环境信息（需登录） ====================
 			authorized.GET("/system-info", handler.GetPublicSystemInfo)

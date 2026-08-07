@@ -26,6 +26,7 @@ import {
   UserPage,
   NodePage,
   SchedulerPage,
+  VmWatchdogPage,
   TaskCenterPage,
   SettingsPage,
   SecurityPage,
@@ -114,6 +115,11 @@ const mainChildren = [
     path: 'scheduler',
     element: lazyPage(<SchedulerPage />),
     handle: { title: '调度事件' },
+  },
+  {
+    path: 'vm-watchdog',
+    element: lazyPage(<VmWatchdogPage />),
+    handle: { title: '看门狗事件' },
   },
   {
     path: 'task',

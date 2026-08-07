@@ -12,6 +12,7 @@ import {
   IconRefresh,
   IconSetting,
   IconShield,
+  IconStopwatchStroked,
   IconTick,
 } from '@douyinfe/semi-icons'
 import TextSwitch from '@/features/vm-form/sections/TextSwitch'
@@ -198,6 +199,42 @@ export default function AdvancedTab({ form, patch }: SettingsTabProps) {
           optionList={isoList.map((iso) => ({ label: iso.name, value: iso.path }))}
         />
       </SettingRow>
+
+      <SectionHead icon={<IconStopwatchStroked />} title="VM 看门狗" />
+
+      <SettingRow
+        label="启用看门狗"
+        tip="开启后周期探测运行中 VM 的 Guest Agent，连续失联达阈值时自动硬重置该 VM。未安装 qemu-guest-agent 的 VM 不纳入探测 | 环境变量: KVM_VM_WATCHDOG_ENABLED"
+      >
+        <TextSwitch
+          checked={form.vm_watchdog_enabled}
+          onChange={(v) => patch({ vm_watchdog_enabled: v })}
+        />
+      </SettingRow>
+
+      <div className="stg-field-grid">
+        <NumField
+          label="探测间隔"
+          suffix="秒"
+          value={form.vm_watchdog_interval_seconds}
+          onChange={(v) => patch({ vm_watchdog_interval_seconds: v })}
+          min={10}
+          max={3600}
+          tip="默认 60"
+        />
+        <NumField
+          label="失联次数阈值"
+          suffix="次"
+          value={form.vm_watchdog_max_misses}
+          onChange={(v) => patch({ vm_watchdog_max_misses: v })}
+          min={1}
+          max={20}
+          tip="连续失联达该次数即自动硬重置，默认 3"
+        />
+      </div>
+      <div className="stg-plain-tip">
+        环境变量前缀: KVM_VM_WATCHDOG_* | 变更无需重启，看门狗在下一轮探测时自动采用新参数
+      </div>
 
       <SectionHead icon={<IconSetting />} title="CPU 亲和性预设" />
 

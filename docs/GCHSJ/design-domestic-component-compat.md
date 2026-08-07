@@ -1,7 +1,7 @@
-# 国产系统组件版本改善设计文档 v0.13
+# 国产系统组件版本改善设计文档 v0.15
 
 > 目标：解决 QVMConsole 在国产系统（麒麟 Kylin V10 / openEuler / UOS 等）上因 GLIBC 与防火墙组件（ufw）版本差异导致的性能折损与功能阻断，并沉淀一套可复用、可交互、与现有代码风格一致的国产化适配机制。
-> 状态：设计已评审（v0.6 综合评估 + v0.7 实施评审补充 + v0.8 安装包最佳实践综合 + v0.9 项目架构总览附录 + v0.9.1 §13 附录补强 + v0.9.2 阅读导航补强 + v0.9.3 组件升级提示与接口收敛 + v0.9.4 组件版本检测闭环 + v0.9.5 §13 架构附录同步 + v0.9.6 §13 深度补强 + v0.9.7 事实核对修正 + v0.9.8 实施后文档同步 + v0.9.9 评审修复同步 + v0.9.10 产品评审批量修复 + v0.9.11 审计修复同步 + v0.10 竞品差异吸收 + v0.10.1 代码对照核实 + v0.11 M8 首批实施 + v0.12 M8 全量实施 + origin/main 分叉合并 + v0.12.1 综合校正 + v0.12.2 openEuler 实测修复 + v0.12.3 架构归一化下沉 + v0.12.4 发行版归一化+apt锁防护+源备份回滚 + v0.13 安装期健壮性（set -e 静默退出脚枪）+安装性能（慢源前置/交互倒计时/计时汇总）），5 项待确认问题已决策（§11），运维/后端补充项 47 项已固化（§12，其中 #A 为优先实施项 M0.5，#T 为 v0.9.4 新增 M7 闭环，#U-#AA 为 v0.9.9 评审修复新增，#AB-#AM 为 v0.9.10 产品评审批量修复新增，#AN-#AP 为 v0.9.11 审计修复新增，#AQ-#AT 为 v0.13 安装期健壮性/性能修复新增）。**实施进度：M0-M7 已全部落地（✅）；M8 竞品差异吸收（P0-P3 共 12 条，§14）已全部实施；评审修复（C1/H1-H3/M1/M3/M4/M5/L2/M2）、产品评审批量修复与审计修复（#AN-#AP）已落地，详见 §7 实施进度汇总与 §13.10**。
+> 状态：设计已评审（v0.6 综合评估 + v0.7 实施评审补充 + v0.8 安装包最佳实践综合 + v0.9 项目架构总览附录 + v0.9.1 §13 附录补强 + v0.9.2 阅读导航补强 + v0.9.3 组件升级提示与接口收敛 + v0.9.4 组件版本检测闭环 + v0.9.5 §13 架构附录同步 + v0.9.6 §13 深度补强 + v0.9.7 事实核对修正 + v0.9.8 实施后文档同步 + v0.9.9 评审修复同步 + v0.9.10 产品评审批量修复 + v0.9.11 审计修复同步 + v0.10 竞品差异吸收 + v0.10.1 代码对照核实 + v0.11 M8 首批实施 + v0.12 M8 全量实施 + origin/main 分叉合并 + v0.12.1 综合校正 + v0.12.2 openEuler 实测修复 + v0.12.3 架构归一化下沉 + v0.12.4 发行版归一化+apt锁防护+源备份回滚 + v0.13 安装期健壮性（set -e 静默退出脚枪）+安装性能（慢源前置/交互倒计时/计时汇总）+ v0.14 当前仓库实施状态校正 + v0.15 前端整体迁入），5 项待确认问题已决策（§11），运维/后端补充项 47 项已固化（§12，其中 #A 为优先实施项 M0.5，#T 为 v0.9.4 新增 M7 闭环，#U-#AA 为 v0.9.9 评审修复新增，#AB-#AM 为 v0.9.10 产品评审批量修复新增，#AN-#AP 为 v0.9.11 审计修复新增，#AQ-#AT 为 v0.13 安装期健壮性/性能修复新增）。**实施进度：M0-M7 已全部落地（✅）；M8 竞品差异吸收（P0-P3 共 12 条，§14）后端已全部落地（✅，v0.14 起以当前仓库 `jeochQVMConsole` 为准——M8.1/M8.5/M8.9/M8.10/M8.11 后端此前仅存在于旧仓库 `jeoQVMConsole`，v0.14 已整体迁移并接线验证）；M8 相关前端展示已全部迁入当前仓库 `web/`（✅，v0.15：health.ts / HealthLight / watchdog.ts / vm-watchdog 页 / os-support 卡 / 看门狗配置分区，见 v0.15 修订要点）；评审修复（C1/H1-H3/M1/M3/M4/M5/L2/M2）、产品评审批量修复与审计修复（#AN-#AP）已落地，详见 §7 实施进度汇总与 §13.10**。
 >
 > **v0.12.1 修订要点（综合各文档与代码现状校正，无功能新增）**：
 > 1. **§14.3/§14.5#6 分叉状态更新**：`origin/main` 功能提交已通过 `d534974` 并入本地（分叉消除，当前 origin/main=`a2e9473`，本地领先 origin 14 提交）；`git merge-base HEAD upstream/main == 51330e5` 即 HEAD 已包含 upstream/main 全部提交。§14.5 候选⑥标注已完成，仅需按 merge-from-upstream.md 定期拉取。
@@ -55,6 +55,34 @@
 > 8. **麒麟 KYSEC 探测（v0.13，Kylin 专项）**：KYSEC（麒麟内核安全机制）可能限制内核模块加载与 `/dev/kvm` 访问。install.sh `check_kysec()`（`ensure_kvm_runtime` STEP 内）防御性多重回退探测（`kysec_ctl` → `/sys/kernel/security/kysec` → `/proc/kysec` → `/etc/kysec`），命中 → info 提示放行建议 + `KYSEC_STATE` 报告复述；面板侧新增 `server/service/arch/kysec.go`（`DetectKYSEC()`/`KysecStatus()` 同口径）接入 component_health `kysec` 条目（仅麒麟命中上报，`diag`+`warning`）+ `/system-info` admin `cpu.kysec` 字段（`enabled`/空）。
 > 9. **certified_hardware 口径对齐（v0.13，Kylin 专项）**：build.sh:252 `kylin-v10-server` 原 `["Kunpeng","Hygon"]`，设计文档原写中文型号（海光 7000/5000、飞腾腾云 S2500）且 support_level 写 B——统一对齐到与 `cpu_vendor` 白名单同源的英文 CPU 厂商 token `["Kunpeng","Phytium","Hygon","Zhaoxin","Intel","AMD"]`（麒麟同源支持 飞腾/鲲鹏/龙芯/申威/兆芯/海光 + x86），support_level 统一 S（与 build.sh 已实施口径一致）。
 >
+> **v0.14 修订要点（当前仓库实施状态校正：后端整体迁移接入 + 前端状态修正 + 键名核对）**：
+>
+> **背景**：M8.1 / M8.5 / M8.9 / M8.10 / M8.11 的后端实现此前仅存在于旧仓库 `jeoQVMConsole`，当前仓库 `jeochQVMConsole` 长期缺失（文档 v0.11/v0.12 的「已实施」标注与实际代码仓库不一致）。v0.14 从旧仓库将该 5 项后端整体迁入当前 `jeochQVMConsole/server` 并完成接线验证，同时按当前仓库真实代码修正前端状态与 manifest 键名：
+>
+> 1. **迁移的后端模块（✅ 已接入当前仓库 **`jeochQVMConsole/server`**，`go build ./...` / `go vet ./...` 通过）**：
+>    - `service/arch/{os.go,normalize.go,domestic_cpu.go,kysec.go}`——发行版归一化（`ReadOSRelease`/`DistroFamilyOf`）、架构归一化（`NormalizeArch`/`IsX86Arch`/`IsAarch64Arch`/`IsRiscv64Arch`）、国产 CPU 厂商探测（`DetectCPUVendor`）、麒麟 KYSEC 探测（`DetectKYSEC`/`KysecStatus`）。
+>    - `model/migrations/`：`schema_migrations` 表 + `Register`/`Run` 单事务执行；`model/db.go` InitDB 在 AutoMigrate 前调用；首个迁移 `0001_scheduler_events_vm_status_index`。
+>    - `model/vm_watchdog_event.go` + AutoMigrate 注册（表数 28→29）。
+>    - `service/vmwatchdog/watchdog.go` + `vmwatchdog_wire.go`（HookResetVM / IsMaintenanceModeEnabled 注入）：`StartWatchdog()` / `CheckHugePagesAdvice()`。
+>    - `service/diagnostics/{component_health.go,periodic_probe.go}` + `diagnostics_wire.go`：`GetComponentHealth` / `ResetComponentHealthCache` / `RefreshComponentHealth` / `GetOsSupport` / `DetectCurrentOsSupport` / `CurrentOsReleaseName` / `StartHealthProbe` / `GetHealthProbe`。
+>    - `handler/health_probe.go` + `handler/version.go` 重构（admin 专属 `component_health`/`cpu`/`glibc`/`selinux` 字段 + TTL 缓存 + aarch64 QEMU 解析）；`handler/diagnostics.go` 补 `GetOsSupport`/`RefreshDiagnostics`；`handler/scheduler.go` 补 `GetVMWatchdogEventList`。
+>    - `config` 增 `VMWatchdogEnabled/IntervalSeconds/MaxMisses`、`HealthDir`、`AppVersion`（全链路 env/DB/序列化）；`main.go` 启动 `StartVMWatchdog`/`StartHealthProbe`；`router.go` 挂 `/system/health/latest`（公开）、`/settings/diagnostics/os-support`、`POST /settings/diagnostics/refresh`、`/vm-watchdog/events`（admin）。
+>
+> 2. **前端状态修正（关键）**：v0.12 标注的 M8.9/M8.10/M8.11 前端组件（`web/src/api/health.ts`、`web/src/components/HealthLight.tsx`、`web/src/api/watchdog.ts`、`web/src/views/vm-watchdog/index.tsx`、AdminDashboard 顶部灯位、诊断页「发行版支持等级」卡片 /「面板运行状态」卡片、系统设置「VM 看门狗」分区）**当前仓库 `web/` 中均不存在**。参考实现位于旧仓库 `jeoQVMConsole/web/`（上述文件齐全）。**待迁移**：按旧仓库实现将健康探针灯、看门狗事件页、os-support/健康度诊断卡片、看门狗配置分区迁入当前仓库 `web/`，并同步 `endpointDescriptions.ts`/`fieldDictionary.ts`/路由与导航。优先级 P2。
+>
+> 3. **manifest 键名修正**：§5.11.2/§5.11.3/§14 多处误写 `cpu_vendor_whitelist`，实际代码使用 `system_requirements.cpu_vendor.whitelist`（见 `compat-manifest.json` 实文件与 `component_health.go` `compatRequirement.Whitelist`）。本版统一更正为 `cpu_vendor.whitelist`（含 `domestic-hci-gap-analysis.md` / `差异分析.md` 的相关表述），并回退了此前对 `cpu_vendor` 条目的误清理（该条目被 component_health 消费，非死数据）。
+>
+> 4. **表数/文件数口径复核**：AutoMigrate 加入 `VMWatchdogEvent` 后 29 张表、`server/handler/` 45 个 .go 文件、「后台调度器 10 项」等 v0.12 附录口径**仅对迁移后的后端成立**；前端完成后将再复核前端路由/组件表。
+>
+> **v0.15 修订要点（M8 相关前端整体迁入当前仓库，前后端对齐完成）**：
+>
+> 1. **迁移的前端模块（✅ 已接入当前仓库 `jeochQVMConsole/web`，`tsc -b` 通过）**：`api/health.ts`（`HealthProbe`/`getHealthProbeLatest`）、`api/watchdog.ts`（`VMWatchdogEvent` 列表）、`views/dashboard/components/HealthLight.tsx`（Dashboard 顶部 30s 轮询健康灯，绿色/黄色/红色三态 + 维护模式）、`views/vm-watchdog/index.tsx`（「看门狗事件」页：列表 + status/vm_name/时间筛选，复用 `sch-*` 调度页样式）、`views/settings/components/DiagnosticsTab.tsx`（**全量替换**为参考实现：面板运行状态卡 + 组件版本健康度卡 + 发行版支持等级矩阵卡 + 诊断类别收集导出，图标库 `@douyinfe/semi-icons`）、`AdvancedTab.tsx`（系统设置「VM 看门狗」分区：启用开关 + 探测间隔 + 失联次数阈值，带校验）。
+> 2. **接线同步**：`config/nav.tsx`（新增 `vm-watchdog` 菜单项 + `IconPulse` + `NAV_COLORS`）、`router/pages.tsx`/`router/index.tsx`（`/vm-watchdog` 懒加载路由）、`AdminDashboard.tsx`（引入 `<HealthLight />`）、`api/settings.ts`（`getOsSupport`/`refreshDiagnostics`/`ComponentHealth` 类型 + `cpu`/`component_health` 字段）、`views/settings/types.ts`（`vm_watchdog_enabled/interval/max_misses` 设置项 + 校验 + payload）、`endpointDescriptions.ts`（补 `/vm-watchdog/events`、`/settings/diagnostics/os-support`、扩展 `/system-info` 描述 + 分组）。
+> 3. **样式补充**：`settings/settings.css`（`stg-comp-*`/`stg-os-*`/`stg-probe-*` 健康度与支持等级卡片样式 + 深色模式低对比扩展 `stg-comp-title/cat-label/name`）、`dashboard/dashboard.css`（`qvm-health-light` 灯 + 红点脉冲动画 + 深色降对比）。vm-watchdog 页复用既有 `sch-*` 调度页样式与 `qvm-mono`/`qvm-fade-up` 通用 token，无需新增 CSS。
+> 4. **口径更新**：§14.2/§14.4/§14.5 的 M8.9/M8.10/M8.11 前端「待迁移」标注全部改为「已迁移（v0.15）」；前端路由/组件表、表数/文件数口径无需再变更。当前仓库 `jeochQVMConsole` 前后端已与设计文档 v0.12 起的「已实施」标注完全一致。
+>
+> ---
+>
 > **v0.13.1 修订要点（openEuler/Kylin 实机回归修复 + 后端 SELinux 自动打标）**：
 > 1. **openEuler 系统主源 glob 补漏（v0.13.1，openEuler 专项）**：openEuler 系统主源文件名为 `openEuler.repo`（无连字符），原 glob 仅匹配 `openEuler-*.repo`/`openeuler-*.repo`，metalink 未注释、baseurl 未切换 → 全量包下载打官方慢源、`makecache` 卡 600s+。修复：glob 扩为四模式 `openEuler.repo`/`OpenEuler.repo`/`openEuler-*.repo`/`openeuler-*.repo`，统一注释 metalink、写入镜像站 baseurl。
 > 2. **makecache 冗余合并 + minrate 提速（v0.13.1，openEuler 专项）**：`apply_rpm_mirror` 与 `probe_critical_rpm_packages` 两处全量 `makecache` 重复（实测 106s+45s），合并为一次统一执行；`--minrate` 1KB/s→10KB/s 令慢源快速放弃切源。STEP2 总耗时 186s 显著下降。
@@ -78,7 +106,7 @@
 >
 > **v0.11 修订要点（M8 首批 5 条实施交付 + 设计文档同步）**：
 > 1. **M8.2（P0-2）firewalld 三档分级已实施**：`COMPONENT_REQ_FIREWALLD` 0.4.0（build.sh + 嵌入 compat-manifest.json + install.sh 回退默认）；`Enable()` `<0.6` 早退返回 `FirewalldOldVersion`；advice.go 新增 `firewalld_unsupported` 字段（`<0.6` 不完整支持 > `firewalld_old` 0.6~0.9 > glibc > selinux）；前端 Banner 与 install.sh print_install_report 同步三档文案。
-> 2. **M8.1（P0-1）CPU 厂商细分已实施**：新增 `server/service/arch/domestic_cpu.go` `DetectCPUVendor()`（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng）；install.sh precheck_domestic 写 `.env DOMESTIC_CPU_VENDOR` + 海光 npt=0 / 飞腾鲲鹏 kvm 模块顺序提示；component_health 增 cpu_vendor 白名单项（`Whitelist` 字段，manifest `cpu_vendor_whitelist`）；`/system-info` `cpu.cpu_vendor` 上报。
+> 2. **M8.1（P0-1）CPU 厂商细分已实施**：新增 `server/service/arch/domestic_cpu.go` `DetectCPUVendor()`（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng）；install.sh precheck_domestic 写 `.env DOMESTIC_CPU_VENDOR` + 海光 npt=0 / 飞腾鲲鹏 kvm 模块顺序提示；component_health 增 cpu_vendor 白名单项（`Whitelist` 字段，manifest 键 `system_requirements.cpu_vendor.whitelist`）；`/system-info` `cpu.cpu_vendor` 上报。
 > 3. **M8.4（P1-4）stage 持久化 + 权限加固已实施**：`.install_state/`（stage/last_error/release_sha256/binary_tier/component_summary/degraded_notes）+ `--resume` 参数（step 包装器记录已完成步骤、失败时写入 last_error 并提示续跑）；ensure_directories 对 `/etc/kvm-console` 系目录 chmod 700/敏感文件 600。
 > 4. **M8.8（P2-8）bash 审计 + kdump 已实施**：`setup_bash_audit`（PROMPT_COMMAND 注入 /root/.bashrc + /etc/skel/.bashrc，chattr +a 失败降级 chmod 622）+ `check_kdump_suggestion`（裸金属无 crashkernel → warn + 报告复述）。
 > 5. **M8.12（P3-12）镜像源测速 + offline 已实施**：`test_mirror_speed`（tsinghua/aliyun/163 curl 计时取最快）写入 `.env DEPS_MIRROR`；offline 时 check_and_install_deps 跳过 install 仅扫缺包汇总报告。
@@ -927,7 +955,7 @@ esac
 | 16 | tcpdump | tcpdump | `tcpdump --version` | 4.9 | 4.99+ | 网络抓包诊断（VM 流量分析） |
 | 17 | tc | iproute2 | `tc -V` | 5.0 | 5.10+ | 带宽限速（QoS） |
 | 18 | kvm_stat | linux-tools / qemu-kvm-tools | `kvm_stat --version` | — | — | 可选辅助指标（热迁移 dirty-rate 判断的补充，[install.sh:500](file:///Volumes/cs/QVMConsole/jeoQVMConsole/install.sh#L500) 缺失仅警告） |
-| 19 | cpu_vendor（v0.10 新增，P0-1，✅ v0.11 已实施 M8.1） | —（CPU 厂商检测，非系统包） | `/proc/cpuinfo` 厂商字段 | 白名单（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng） | — | 国产 CPU 兼容性；不在白名单 → warning「未认证厂商」（§5.11.3 manifest `cpu_vendor_whitelist`；SMTXOS 对海光有显式启动参数分支，见 §5.8 precheck_domestic） |
+| 19 | cpu_vendor（v0.10 新增，P0-1，✅ v0.11 已实施 M8.1） | —（CPU 厂商检测，非系统包） | `/proc/cpuinfo` 厂商字段 | 白名单（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng） | — | 国产 CPU 兼容性；不在白名单 → warning「未认证厂商」（§5.11.3 manifest 键 `system_requirements.cpu_vendor.whitelist`；SMTXOS 对海光有显式启动参数分支，见 §5.8 precheck_domestic） |
 
 > **分类规则**：
 > - **核心必装**（1-8 + 19 cpu_vendor）：版本低于最低要求 → critical（中止安装）；**缺失 → warning**（`check_and_install_deps` 已先安装缺失包，此时缺失多为发行版无此包/后装场景，面板功能受限而非崩溃）；cpu_vendor 不在白名单 → warning「未认证厂商」（非 critical）
@@ -2442,11 +2470,11 @@ cd web && npm run gen:api    # 手动触发
 >
 > **v0.11 实施状态标注**：**M8.1 / M8.2 / M8.4 / M8.8 / M8.12 已实施**（详见 §14.4 各行的 ✅ 标注）。
 >
-> **v0.12 实施状态标注**：**M8.3 / M8.5 / M8.6 / M8.7 / M8.9 / M8.10 / M8.11 已实施**（详见 §14.4 各行的 ✅ 标注），**M8 全量 12/12 落地**。
+> **v0.12 实施状态标注**：**M8.3 / M8.5 / M8.6 / M8.7 / M8.9 / M8.10 / M8.11 已实施**（详见 §14.4 各行的 ✅ 标注），**M8 全量 12/12 落地**。**v0.14 修正**：M8.1/M8.5/M8.9/M8.10/M8.11 的后端已迁入当前仓库 `jeochQVMConsole/server` 并验证（✅）。**v0.15 修正**：M8.9/M8.10/M8.11 的前端展示（看门狗配置分区 / HealthLight 灯 / vm-watchdog 事件页 / 诊断页 os-support 与面板运行状态卡）也已迁入当前仓库 `web/`（✅），M8 前后端全部对齐。
 
 | 里程碑 | 内容 | 设计落点 | 依赖 | 风险 | 验收（§8 M8 用例块） |
 |---|---|---|---|---|---|
-| **M8.1** | **P0-1 CPU 厂商细分**：`server/service/arch/domestic_cpu.go` `DetectCPUVendor()` + `.env DOMESTIC_CPU_VENDOR` + manifest `cpu_vendor_whitelist` + §5.11.2 cpu_vendor 行 | §5.8 / §5.11.2 / §5.11.3 / §4.1 | M7（component_health 口径） | 低 | ✅ 已实施（v0.11）：`DetectCPUVendor()`（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng）+ precheck_domestic 写 `.env` + component_health cpu_vendor 白名单项 |
+| **M8.1** | **P0-1 CPU 厂商细分**：`server/service/arch/domestic_cpu.go` `DetectCPUVendor()` + `.env DOMESTIC_CPU_VENDOR` + manifest 键 `system_requirements.cpu_vendor.whitelist` + §5.11.2 cpu_vendor 行 | §5.8 / §5.11.2 / §5.11.3 / §4.1 | M7（component_health 口径） | 低 | ✅ 已实施（v0.11）：`DetectCPUVendor()`（Intel/AMD/Hygon/Phytium/Zhaoxin/Kunpeng）+ precheck_domestic 写 `.env` + component_health cpu_vendor 白名单项 |
 | **M8.2** | **P0-2 firewalld 三档分级**：`COMPONENT_REQ_FIREWALLD` → `0.4.0|0.9.0` + `Enable()` <0.6 返回 FirewalldOldVersion | §5.1 决策 3 / §5.11.2 / §5.11.3 / §5.11.4 | 无（复用 `firewalldVersionAtLeast`） | 低 | ✅ 已实施（v0.11）：阈值 0.4.0 + `Enable()` `<0.6` 早退 + advice `firewalld_unsupported` 三档 |
 | **M8.3** | **P0-3 glibc 2.17 真兼容**：build.yml `verify-centos7-glibc217` job + `--smoke-selfcheck` 子命令 | §4.3 / §5.9 / §8 | CI 镜像 | 中 | ✅ 已实施（v0.12）：docker centos:7 下 `--version` + `--smoke-selfcheck` 通过 |
 | **M8.4** | **P1-4 stage 持久化 + 权限加固**：`.install_state/` + `--resume` + 目录 chmod 600/700 | §5.8 / §8 | 无 | 低 | ✅ 已实施（v0.11）：`.install_state/` stage/last_error + `--resume` + ensure_directories chmod 700/600 |
@@ -2455,7 +2483,7 @@ cd web && npm run gen:api    # 手动触发
 | **M8.7** | **P1-7 安装包完整性**：`SHA256SUMS` + minisign 签名校验 | §5.9 / §14 | 构建密钥 | 低 | ✅ 已实施（v0.12）：`SHA256SUMS` 生成 + extract_tarball 解压前校验，篡改包被拒（minisign 签名留待后续） |
 | **M8.8** | **P2-8 bash 审计 + kdump 提示**：`setup_bash_audit` + `precheck_domestic` kdump 检测 | §5.8 / §8 | 无 | 低 | ✅ 已实施（v0.11）：`setup_bash_audit`（PROMPT_COMMAND + chattr +a / 降级 622）+ `check_kdump_suggestion` |
 | **M8.9** | **P2-9 VM 看门狗 + 大页建议**：`vmwatchdog/` 子包 + hugepages 字段 | §13.3.3 / §14 | taskqueue 复用 | 中 | ✅ 已实施（v0.12）：`StartWatchdog()` 失联 3 次 HookResetVM + 事件入库；内存 ≥128GB 且无大页 → warning |
-| **M8.10** | **P2-10 周期健康探针 + Dashboard 灯**：`periodic_probe.go` + `.health/latest.json` + 前端灯 | §13.3.3 / §14 | 前端 Dashboard | 中 | ✅ 已实施（v0.12）：`GET /api/system/health/latest` + HealthLight 30s 轮询，服务异常提前告警 |
+| **M8.10** | **P2-10 周期健康探针 + Dashboard 灯**：`periodic_probe.go` + `.health/latest.json` + 前端灯 | §13.3.3 / §14 | 前端 Dashboard | 中 | ✅ 后端已实施（v0.12，v0.14 迁入当前仓库）：`GET /api/system/health/latest` + `StartHealthProbe()`；**前端 HealthLight 30s 轮询灯位已迁移（v0.15）**：`web/src/api/health.ts` + `dashboard/components/HealthLight.tsx` + AdminDashboard 引入 |
 | **M8.11** | **P3-11 支持等级 S/A/B/C + 硬件认证矩阵**：manifest `os_compat` 扩展 + 安装期 warn | §5.11.3 / §5.8 | 无 | 低 | ✅ 已实施（v0.12）：`support_level` + `certified_hardware`，C 级发行版安装时 warn 升级 |
 | **M8.12** | **P3-12 国内镜像源自测 + offline 模式**：`test_mirror_speed` + `DEPS_MIRROR=offline` | §5.8 / §8 | 无 | 低 | ✅ 已实施（v0.11）：`test_mirror_speed`（openEuler 推荐 nju、清华/阿里计时选最快）+ offline 跳过 install 仅扫缺包；**v0.13（#AS）**探测顺序后移——关键包可用性在镜像切换后经 `probe_critical_rpm_packages()` 探测 |
 
@@ -2482,9 +2510,9 @@ cd web && npm run gen:api    # 手动触发
 | **M8.6** | `install_files()` [install.sh:2493](file:///Volumes/cs/QVMConsole/jeoQVMConsole/install.sh#L2493)（现直接 mv 覆盖） | ✅ **已实施（v0.12）**：`backup_previous_release()`（`.release_backup/{01|02|03}` 循环保留 3 份）+ update 分支停服后调用 + `INSTALL_DIR/.version`；qvmc-manage.sh `rollback_release()` + 菜单项 | 已交付（~60 行 shell） |
 | **M8.7** | `extract_tarball()` [install.sh:2355](file:///Volumes/cs/QVMConsole/jeoQVMConsole/install.sh#L2355)（v0.12.1 起含 `verify_minisign_signature()` L2306 调用） | ✅ **已实施（v0.12）**：build.sh 打包段生成 tarball `.tar.gz.sha256` + 包内 `SHA256SUMS`；extract_tarball 解压前校验（不匹配 exit 1），下载分支拉 `${url}.sha256`。**v0.12.1**：新增 minisign 验签（见 §13.10） | 已交付（~35 行 shell） |
 | **M8.8** | `precheck_domestic` [install.sh:2814](file:///Volumes/cs/QVMConsole/jeoQVMConsole/install.sh#L2814)（现有端口/多防火墙/NM 探测挂点） | ✅ **已实施（v0.11）**：新增辅助步骤 `setup_bash_audit`（PROMPT_COMMAND + chattr +a / 降级 622）；`check_kdump_suggestion`（systemd-detect-virt 裸金属 + crashkernel 判定） | 已交付 |
-| **M8.9** | taskqueue 机制（§13.3.6，`taskqueue` 包可复用）；`server/service/` 子包模式 | ✅ **已实施（v0.12）**：`server/service/vmwatchdog/` 子包（`StartWatchdog()` 60s 周期、missCounts 内存计数、失联 3 次 HookResetVM + `VMWatchdogEvent` 入库；维护模式/无 libvirt 跳过）；`vmwatchdog_wire.go` Hook 注入；config `VMWatchdogEnabled/IntervalSeconds/MaxMisses`；component_health 增 `hugepages` 项（mem≥128GB 且 HugePages_Total=0 → warning） | 已交付（~200 行 Go） |
-| **M8.10** | `server/service/diagnostics/` 现有 collector.go；`main.go` 启动异步预热模式 | ✅ **已实施（v0.12）**：`periodic_probe.go`（`StartHealthProbe()` 每分钟原子写 `${KVM_HEALTH_DIR:-/opt/QVMConsole/.health}/latest.json`）；handler `health_probe.go`；public 路由 `GET /api/system/health/latest`；前端 `health.ts` + `HealthLight`（30s 轮询，libvirt 不可用→黄、超时→红、正常→绿） | 已交付（~150 行 Go + 前端 ~100 行） |
-| **M8.11** | manifest 生成 `write_compat_manifest()`（build.sh，M7.0 已实施） | ✅ **已实施（v0.12）**：build.sh `os_compat` 段扩展 `support_level`/`certified_hardware` + versions.conf `SUPPORT_LEVEL_<os>`；嵌入 manifest 同步；install.sh `check_support_level()`（`support_level=C` → warn「理论兼容，生产请升级到认证基线」+ 报告复述） | 已交付（manifest 结构 + 1 个判定 + ~30 行 shell） |
+| **M8.9** | taskqueue 机制（§13.3.6，`taskqueue` 包可复用）；`server/service/` 子包模式 | ✅ **已实施（v0.12）**：`server/service/vmwatchdog/` 子包（`StartWatchdog()` 60s 周期、missCounts 内存计数、失联 3 次 HookResetVM + `VMWatchdogEvent` 入库；维护模式/无 libvirt 跳过）；`vmwatchdog_wire.go` Hook 注入；config `VMWatchdogEnabled/IntervalSeconds/MaxMisses`；component_health 增 `hugepages` 项（mem≥128GB 且 HugePages_Total=0 → warning）。**前端已迁移（v0.15）**：系统设置「VM 看门狗」分区（`AdvancedTab.tsx`，开关 + 间隔 + 阈值带校验）+「看门狗事件」页（`views/vm-watchdog/index.tsx` + `api/watchdog.ts`） | 已交付（~200 行 Go）；前端已迁移 |
+| **M8.10** | `server/service/diagnostics/` 现有 collector.go；`main.go` 启动异步预热模式 | ✅ **后端已实施（v0.12，v0.14 迁入当前仓库）**：`periodic_probe.go`（`StartHealthProbe()` 每分钟原子写 `${KVM_HEALTH_DIR:-/opt/QVMConsole/.health}/latest.json`）；handler `health_probe.go`；public 路由 `GET /api/system/health/latest`。**前端已迁移（v0.15）**：`web/src/api/health.ts` + `dashboard/components/HealthLight.tsx`（30s 轮询）+ AdminDashboard 顶部灯位 + 诊断页「面板运行状态」卡 | 后端已交付（~150 行 Go）；前端已迁移 |
+| **M8.11** | manifest 生成 `write_compat_manifest()`（build.sh，M7.0 已实施） | ✅ **已实施（v0.12）**：build.sh `os_compat` 段扩展 `support_level`/`certified_hardware` + versions.conf `SUPPORT_LEVEL_<os>`；嵌入 manifest 同步；install.sh `check_support_level()`（`support_level=C` → warn「理论兼容，生产请升级到认证基线」+ 报告复述）。**前端已迁移（v0.15）**：`api/settings.ts` `getOsSupport` + 诊断页「发行版支持等级」卡（S/A/B/C 标签 + certified_hardware + 当前系统高亮） | 已交付（manifest 结构 + 1 个判定 + ~30 行 shell）；前端已迁移 |
 | **M8.12** | `check_and_install_deps`（install.sh L580）+ precheck_domestic 挂点 | ✅ **已实施（v0.11）**：新增 `test_mirror_speed`（openEuler 推荐 nju、清华/阿里 curl 计时取最快）+ `.env DEPS_MIRROR` + offline 分支（跳过 install 仅扫缺包汇总报告）。**v0.13 补（#AS）**：`enable_openeuler_repos` 不再对官方慢源 makecache/list，改 `probe_critical_rpm_packages()` 于 `apply_system_mirror` 之后探测 | 已交付 |
 
 > **结论（v0.10.1）**：与已修改代码逐条对照后，**M8.2 与 M8.4 实施范围显著收窄**（复用已有版本探测与权限逻辑）；**M8.1/M8.3/M8.5/M8.11 有明确可复用锚点**；其余 M8 项为全新代码但落点已定位。建议实施顺序保持 P0-2 → P0-1 → P1-4 → P1-5，其中 **M8.2 预计 0.5 人日即可完成**（阈值 + Enable 早退 + advice 判定）。
@@ -2495,13 +2523,13 @@ cd web && npm run gen:api    # 手动触发
 
 ### 14.5 后续演进候选（v0.12 新增，M8 全量落地后可选）
 
-M8 已全量实施，以下为可选演进方向（v0.12 后已实施其中 4 条；v0.12.1 已实施候选⑥）：
+M8 已全量实施（后端 v0.14 迁入当前仓库 + 前端 v0.15 迁入当前仓库，前后端已对齐），以下为可选演进方向（v0.12.1 已实施候选⑥；候选①②③⑤前端展示已随 v0.15 迁移，标注从「待迁移」更新为「已迁移」）：
 
-1. **诊断面板接入健康探针实时数据（✅ 已实施 v0.12）**：`GET /api/system/health/latest` 已暴露；诊断页新增「面板运行状态」卡片，展示 libvirt 就绪/daemon/维护模式/运行时长快照，与 `component_health` 卡片并列。
-2. **看门狗灵敏度配置界面（✅ 已实施 v0.12）**：`KVM_VM_WATCHDOG_*` 已纳入系统设置「调度与高级」Tab 的「VM 看门狗」分区（开关 + 探测间隔 + 失联次数阈值，带校验），config `keyToEnvVar`/`LoadFromDB`/`ToSettingsMap` 三处已接入持久化；watchdog 每轮循环重读配置，变更无需重启即生效。
-3. **支持等级矩阵前端展示（✅ 已实施 v0.12）**：新增 `GET /settings/diagnostics/os-support`（`os_compat` + `meta` 等级定义）；诊断页新增「发行版支持等级」卡片，S/A/B/C 标签 + certified_hardware 展示。
+1. **诊断面板接入健康探针实时数据（✅ 已实施 v0.12/0.14 后端 + v0.15 前端）**：`GET /api/system/health/latest` 已暴露；诊断页「面板运行状态」卡片（libvirt 就绪/daemon/维护模式/运行时长快照，与 `component_health` 卡并列）已迁入当前仓库 `web/`（`DiagnosticsTab.tsx`）。
+2. **看门狗灵敏度配置界面（✅ 已实施 v0.15，前端配置分区已迁移）**：`KVM_VM_WATCHDOG_*` 已纳入 config 全链路（`keyToEnvVar`/`LoadFromDB`/`ToSettingsMap` + watchdog 每轮重读）；系统设置「调度与高级」Tab 的「VM 看门狗」分区（开关 + 探测间隔 + 失联次数阈值，带校验）已迁入当前仓库 `web/`（`AdvancedTab.tsx`）。
+3. **支持等级矩阵前端展示（✅ 已实施 v0.12/0.14 后端 + v0.15 前端）**：`GET /settings/diagnostics/os-support`（`os_compat` + `meta` 等级定义）；诊断页「发行版支持等级」卡片（S/A/B/C 标签 + certified_hardware + 当前系统高亮）已迁入当前仓库 `web/`（`DiagnosticsTab.tsx`）。
 4. **minisign 签名完整化（✅ 已实施 v0.12.1，见 §13.7.2/§13.10）**：M8.7 已交付 SHA256SUMS 校验；minisign 离线签名 + 安装期验证已落地（构建 `build.sh` 签名 + 安装 `install.sh` 验签 + 公钥分发链路补全 + 依赖登记）。v0.12.1 已生成真实密钥并公钥入库（`docs/minisign.pub` + install.sh 内嵌 `MINISIGN_PUBLIC_KEY`），私钥 `.minisign-sec/` gitignore 离线保管；CI `release` 可选签名待配置 `secrets.MINISIGN_KEY` 后启用。
-5. **看门狗事件前端查看（✅ 已实施 v0.12）**：新增 `GET /vm-watchdog/events`（分页 + status/vm_name/时间筛选）+ 系统菜单「看门狗事件」页（列表 + 类型/虚拟机/时间筛选），`VMWatchdogEvent` 的 reset/warning/recovered 均支持筛选。
+5. **看门狗事件前端查看（✅ 已实施 v0.12/0.14 后端 + v0.15 前端）**：`GET /vm-watchdog/events`（分页 + status/vm_name/时间筛选）+ 系统菜单「看门狗事件」页（列表 + 类型/虚拟机/时间筛选）——接口后端已就绪；事件页已迁入当前仓库 `web/`（`views/vm-watchdog/index.tsx` + `config/nav.tsx` 菜单 + `router` 路由）。
 6. **合并 `origin/main` 上游功能（✅ 已完成 v0.12.1）**：`d534974` 已将 `origin/main` 功能提交全部并入本地（§14.3），分叉已消除且 HEAD 已包含 upstream/main 全部提交；后续仅需定期拉取上游新提交（`docs/merge-from-upstream.md` 策略，只合并后端）。
 
 **未完成 / 优化登记（v0.12.1 综合评估）**：

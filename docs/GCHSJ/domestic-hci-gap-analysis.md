@@ -56,7 +56,7 @@
 - **建议实施路径**：
   1. `server/service/arch/` 新增 `domestic_cpu.go`（与 `ArchProfile` 同注册模式），暴露 `DetectCPUVendor()` 返回 `Intel | AMD | Hygon | Phytium | Zhaoxin | Kunpeng | Unknown`
   2. install.sh `precheck_domestic` 调用检测 → 写 `.env DOMESTIC_CPU_VENDOR=xxx`；对海光 7000/5000 提示 `kvm_amd.npt=0`（第一世代海光需关嵌套页表）；对飞腾/鲲鹏 ARM64 检查 KVM 模块加载顺序（kvm→kvm_arm→hyp/vhe）
-  3. `compat-manifest.json` 的 `system_requirements` 扩展 `cpu_vendor_whitelist / cpu_vendor_blacklist`，component_health 检测到未支持厂商报 warning
+  3. `compat-manifest.json` 的 `system_requirements` 扩展 `cpu_vendor.whitelist`（已实施，manifest 键），component_health 检测到未支持厂商报 warning
   4. 文档 §5.11.2 组件阈值表增加一行 `cpu_vendor`
 - **关联文件**：[build.sh](file:///Volumes/cs/QVMConsole/jeoQVMConsole/build.sh) COMPONENT_REQ_*；[install.sh](file:///Volumes/cs/QVMConsole/jeoQVMConsole/install.sh) precheck_domestic + ensure_kvm_runtime；[server/handler/version.go](file:///Volumes/cs/QVMConsole/jeoQVMConsole/server/handler/version.go) /system-info；[service/diagnostics/component_health.go](file:///Volumes/cs/QVMConsole/jeoQVMConsole/server/service/diagnostics/component_health.go)
 

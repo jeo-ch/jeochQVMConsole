@@ -322,6 +322,102 @@
   color: var(--qvm-acc-ink);
 }
 
+/* ==================== 组件版本健康度（M7.2 / §5.11.5） ==================== */
+.stg-comp-health {
+  margin-top: 8px;
+}
+.stg-comp-health-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stg-comp-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--qvm-text-0);
+}
+.stg-comp-last-check {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  color: var(--qvm-text-2);
+}
+/* 发行版支持等级矩阵（M8.11 / §14 P3-11）：等级图例横向排列 */
+.stg-os-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 4px;
+}
+/* C1：当前系统支持等级徽标（与 meta 区分，绿色提示高亮） */
+.stg-os-current {
+  margin-left: 4px;
+  font-weight: 600;
+}
+/* 面板健康探针信息（M8.10 / §14 P2-10，§14.5 候选①）：条目保持同组间距 */
+.stg-probe-items {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.stg-comp-cat {
+  margin-bottom: 12px;
+}
+.stg-comp-cat-label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qvm-text-1);
+}
+.stg-comp-item {
+  position: relative;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--qvm-stroke);
+  border-radius: 6px;
+  background: var(--qvm-surface-2);
+  line-height: 1.6;
+}
+.stg-comp-status {
+  margin-right: 8px;
+}
+.stg-comp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qvm-text-0);
+  margin-right: 8px;
+}
+.stg-comp-ver {
+  font-family: var(--qvm-num-font);
+  font-size: 13px;
+  color: var(--qvm-text-1);
+  margin-right: 10px;
+}
+.stg-comp-req {
+  font-size: 12px;
+  color: var(--qvm-text-2);
+  margin-right: 10px;
+}
+.stg-comp-msg {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--qvm-text-2);
+}
+.stg-comp-hint {
+  margin-top: 2px;
+  font-size: 12.5px;
+}
+.stg-comp-hint-text {
+  font-family: var(--qvm-num-font);
+  color: var(--qvm-acc-ink);
+}
+.stg-comp-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--qvm-text-2);
+}
+
 /* ==================== 存储管理 ==================== */
 .stg-mono-text {
   font-family: var(--qvm-num-font);
@@ -355,7 +451,10 @@
 body[theme-mode='dark'] .stg-page-header h2,
 body[theme-mode='dark'] .stg-section-head,
 body[theme-mode='dark'] .stg-profile-item strong,
-body[theme-mode='dark'] .stg-diag-label {
+body[theme-mode='dark'] .stg-diag-label,
+body[theme-mode='dark'] .stg-comp-title,
+body[theme-mode='dark'] .stg-comp-cat-label,
+body[theme-mode='dark'] .stg-comp-name {
   color: #b8c1cf;
 }
 

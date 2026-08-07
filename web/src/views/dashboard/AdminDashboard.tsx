@@ -12,6 +12,7 @@ import { getPasswordBreachStatus, type PasswordBreachStatus } from '@/api/passwo
 import { useUserStore } from '@/stores/user'
 import TopLine from './components/TopLine'
 import HostStatusBanner from './components/HostStatusBanner'
+import HealthLight from './components/HealthLight'
 import AdminStats from './components/AdminStats'
 import HostMonitorCharts from './components/HostMonitorCharts'
 import AdminBottom from './components/AdminBottom'
@@ -94,6 +95,7 @@ export default function AdminDashboard() {
           </>
         }
       />
+      <HealthLight />
       <HostStatusBanner
         stats={stats}
         disks={disks}
