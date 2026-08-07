@@ -67,14 +67,26 @@ func withVMDiskImagesUnlocked(name string, fn func() error) error {
 	var unlocked []string
 	seen := map[string]bool{}
 	for _, m := range diskSourceFileRe.FindAllStringSubmatch(vmXML, -1) {
+		// XML 的 <source file> 仅列出覆盖层（overlay），而链式克隆的 backing 模板
+		// 只存在于 qcow2 backing-file 元数据中，libvirt 启动时会按 backing 链解析并对
+		// 每个层执行 setfilecon。模板层在导入时被置为 immutable（chattr +i），若仅解锁
+		// 覆盖层，backing 模板仍 immutable → SELinux Enforcing 下启动依旧报
+		// "Operation not permitted"。故此处用 qemu-img info 递归解析 backing 链，
+		// 把每一层的文件路径都纳入解锁集合。
 		p := strings.TrimSpace(m[1])
-		if p == "" || seen[p] {
+		if p == "" {
 			continue
 		}
-		seen[p] = true
-		if utils.IsFileImmutable(p) {
-			if utils.RemoveFileImmutable(p) == nil {
-				unlocked = append(unlocked, p)
+		// resolveQcow2BackingChain(p) 首元素即 p 自身，直接由链循环统一纳入解锁集合。
+		for _, chainPath := range resolveQcow2BackingChain(p) {
+			if chainPath == "" || seen[chainPath] {
+				continue
+			}
+			seen[chainPath] = true
+			if utils.IsFileImmutable(chainPath) {
+				if utils.RemoveFileImmutable(chainPath) == nil {
+					unlocked = append(unlocked, chainPath)
+				}
 			}
 		}
 	}
@@ -84,6 +96,34 @@ func withVMDiskImagesUnlocked(name string, fn func() error) error {
 		}
 	}()
 	return fn()
+}
+
+// resolveQcow2BackingChain 用 qemu-img info -U 递归解析 qcow2 映像的 backing 链，
+// 返回从顶层到最底层所有文件的路径（含自身）。中层级文件可能同时是上层 overlay 的
+// backing 与自身的镜像，借助 lsattr/chattr 幂等处理；非 qcow2/不可读文件仅返回自身。
+// 在 withVMDiskImagesUnlocked 中用于把 immutable 的共享模板一并纳入临时解锁集合。
+func resolveQcow2BackingChain(path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	result := []string{path}
+	cur := path
+	for i := 0; i < 64; i++ {
+		res := utils.ExecShellQuiet(fmt.Sprintf("qemu-img info -U %s 2>/dev/null | grep 'backing file:' | awk '{print $3}'", utils.ShellSingleQuote(cur)))
+		backing := strings.TrimSpace(res.Stdout)
+		if backing == "" || backing == cur {
+			break
+		}
+		if !filepath.IsAbs(backing) {
+			// 相对 backing 路径相对其父文件所在目录解析
+			backing = filepath.Join(filepath.Dir(cur), backing)
+		}
+		backing = filepath.Clean(backing)
+		result = append(result, backing)
+		cur = backing
+	}
+	return result
 }
 
 // ==================== 虚拟机生命周期操作 ====================
