@@ -1,7 +1,7 @@
-# 国产系统组件版本改善设计文档 v0.15
+# 国产系统组件版本改善设计文档 v0.18
 
 > 目标：解决 QVMConsole 在国产系统（麒麟 Kylin V10 / openEuler / UOS 等）上因 GLIBC 与防火墙组件（ufw）版本差异导致的性能折损与功能阻断，并沉淀一套可复用、可交互、与现有代码风格一致的国产化适配机制。
-> 状态：设计已评审（v0.6 综合评估 + v0.7 实施评审补充 + v0.8 安装包最佳实践综合 + v0.9 项目架构总览附录 + v0.9.1 §13 附录补强 + v0.9.2 阅读导航补强 + v0.9.3 组件升级提示与接口收敛 + v0.9.4 组件版本检测闭环 + v0.9.5 §13 架构附录同步 + v0.9.6 §13 深度补强 + v0.9.7 事实核对修正 + v0.9.8 实施后文档同步 + v0.9.9 评审修复同步 + v0.9.10 产品评审批量修复 + v0.9.11 审计修复同步 + v0.10 竞品差异吸收 + v0.10.1 代码对照核实 + v0.11 M8 首批实施 + v0.12 M8 全量实施 + origin/main 分叉合并 + v0.12.1 综合校正 + v0.12.2 openEuler 实测修复 + v0.12.3 架构归一化下沉 + v0.12.4 发行版归一化+apt锁防护+源备份回滚 + v0.13 安装期健壮性（set -e 静默退出脚枪）+安装性能（慢源前置/交互倒计时/计时汇总）+ v0.14 当前仓库实施状态校正 + v0.15 前端整体迁入），5 项待确认问题已决策（§11），运维/后端补充项 47 项已固化（§12，其中 #A 为优先实施项 M0.5，#T 为 v0.9.4 新增 M7 闭环，#U-#AA 为 v0.9.9 评审修复新增，#AB-#AM 为 v0.9.10 产品评审批量修复新增，#AN-#AP 为 v0.9.11 审计修复新增，#AQ-#AT 为 v0.13 安装期健壮性/性能修复新增）。**实施进度：M0-M7 已全部落地（✅）；M8 竞品差异吸收（P0-P3 共 12 条，§14）后端已全部落地（✅，v0.14 起以当前仓库 `jeochQVMConsole` 为准——M8.1/M8.5/M8.9/M8.10/M8.11 后端此前仅存在于旧仓库 `jeoQVMConsole`，v0.14 已整体迁移并接线验证）；M8 相关前端展示已全部迁入当前仓库 `web/`（✅，v0.15：health.ts / HealthLight / watchdog.ts / vm-watchdog 页 / os-support 卡 / 看门狗配置分区，见 v0.15 修订要点）；评审修复（C1/H1-H3/M1/M3/M4/M5/L2/M2）、产品评审批量修复与审计修复（#AN-#AP）已落地，详见 §7 实施进度汇总与 §13.10**。
+> 状态：设计已评审（v0.6 综合评估 + v0.7 实施评审补充 + v0.8 安装包最佳实践综合 + v0.9 项目架构总览附录 + v0.9.1 §13 附录补强 + v0.9.2 阅读导航补强 + v0.9.3 组件升级提示与接口收敛 + v0.9.4 组件版本检测闭环 + v0.9.5 §13 架构附录同步 + v0.9.6 §13 深度补强 + v0.9.7 事实核对修正 + v0.9.8 实施后文档同步 + v0.9.9 评审修复同步 + v0.9.10 产品评审批量修复 + v0.9.11 审计修复同步 + v0.10 竞品差异吸收 + v0.10.1 代码对照核实 + v0.11 M8 首批实施 + v0.12 M8 全量实施 + origin/main 分叉合并 + v0.12.1 综合校正 + v0.12.2 openEuler 实测修复 + v0.12.3 架构归一化下沉 + v0.12.4 发行版归一化+apt锁防护+源备份回滚 + v0.13 安装期健壮性（set -e 静默退出脚枪）+安装性能（慢源前置/交互倒计时/计时汇总）+ v0.14 当前仓库实施状态校正 + v0.15 前端整体迁入 + v0.16 CI 缺口补齐 + v0.17 安装语言环境检查增强 + v0.18 官方仓库核对比对 + 测试机孤儿清理），5 项待确认问题已决策（§11），运维/后端补充项 47 项已固化（§12，其中 #A 为优先实施项 M0.5，#T 为 v0.9.4 新增 M7 闭环，#U-#AA 为 v0.9.9 评审修复新增，#AB-#AM 为 v0.9.10 产品评审批量修复新增，#AN-#AP 为 v0.9.11 审计修复新增，#AQ-#AT 为 v0.13 安装期健壮性/性能修复新增）。**实施进度：M0-M7 已全部落地（✅）；M8 竞品差异吸收（P0-P3 共 12 条，§14）后端已全部落地（✅，v0.14 起以当前仓库 `jeochQVMConsole` 为准——M8.1/M8.5/M8.9/M8.10/M8.11 后端此前仅存在于旧仓库 `jeoQVMConsole`，v0.14 已整体迁移并接线验证）；M8 相关前端展示已全部迁入当前仓库 `web/`（✅，v0.15：health.ts / HealthLight / watchdog.ts / vm-watchdog 页 / os-support 卡 / 看门狗配置分区，见 v0.15 修订要点）；CI 侧缺口自 v0.16 补齐（✅：`verify-centos7-glibc217` / `verify-arm64-glibc-low` / 产物 .sha256/.minisig/minisign.pub 上传 / release minisign 签名步骤 / amd64 glibc 2.35 固定档，见 v0.16 修订要点）；评审修复（C1/H1-H3/M1/M3/M4/M5/L2/M2）、产品评审批量修复与审计修复（#AN-#AP）已落地，详见 §7 实施进度汇总与 §13.10**。
 >
 > **v0.12.1 修订要点（综合各文档与代码现状校正，无功能新增）**：
 > 1. **§14.3/§14.5#6 分叉状态更新**：`origin/main` 功能提交已通过 `d534974` 并入本地（分叉消除，当前 origin/main=`a2e9473`，本地领先 origin 14 提交）；`git merge-base HEAD upstream/main == 51330e5` 即 HEAD 已包含 upstream/main 全部提交。§14.5 候选⑥标注已完成，仅需按 merge-from-upstream.md 定期拉取。
@@ -81,6 +81,32 @@
 > 3. **样式补充**：`settings/settings.css`（`stg-comp-*`/`stg-os-*`/`stg-probe-*` 健康度与支持等级卡片样式 + 深色模式低对比扩展 `stg-comp-title/cat-label/name`）、`dashboard/dashboard.css`（`qvm-health-light` 灯 + 红点脉冲动画 + 深色降对比）。vm-watchdog 页复用既有 `sch-*` 调度页样式与 `qvm-mono`/`qvm-fade-up` 通用 token，无需新增 CSS。
 > 4. **口径更新**：§14.2/§14.4/§14.5 的 M8.9/M8.10/M8.11 前端「待迁移」标注全部改为「已迁移（v0.15）」；前端路由/组件表、表数/文件数口径无需再变更。当前仓库 `jeochQVMConsole` 前后端已与设计文档 v0.12 起的「已实施」标注完全一致。
 >
+> **v0.16 修订要点（CI 缺口补齐：glibc 实测 / arm64 低档 / 产物签名上传，与参考仓库对齐）**：
+>
+> 1. **背景**：v0.15 只迁移了前后端源码与文档；对照参考仓库 `jeoQVMConsole` 的 `.github/workflows/build.yml` 后发现当前仓库 CI 与本设计「已实施」标注不符——多个 job 与服务步骤缺失。本版一次性补齐 CI 侧缺口，使构建/验证/发布流水线与参考仓库完全一致。
+> 2. **补 `verify-centos7-glibc217` job（M8.3 / §4.3 / §8 P0-3）**：等 amd64 构建完成后下载发行包，解压取默认 compat 档 `kvm-console` 二进制，在 docker `centos:7`（glibc 2.17 基线）内实测 `ldd --version` + `kvm-console --version` + `kvm-console --smoke-selfcheck`，将 glibc 2.17「理论兼容」升级为「实测通过」。（说明：实现基于后端 `main.go` 既有的 `--smoke-selfcheck` 自检子命令，本次仅补 CI 编排。）
+> 3. **新增 `verify-arm64-glibc-low` job（§13.7.2 优化登记，v0.12.1）**：等 arm64 构建完成后在 arm64 runner 上下载产物，于 `arm64v8/ubuntu:20.04`（glibc 2.31）容器内实测 `--version` + `--smoke-selfcheck`；`centos:7` 无 arm64 变体镜像，故用 2.31 作最低档冒烟（默认 compat 档 GLIBC 上限即 2.17，运行时只依赖更低符号，属预期）。
+> 4. **产物上传补 `.sha256`/`.minisig`/`minisign.pub`**：`build`/`build-arm64` 的 GitHub artifact 均含 `release/...tar.gz`、`...tar.gz.sha256`、`...tar.gz.minisig`、`release/minisign.pub`（`if-no-files-found: warn`，未签名时缺 `.minisig` 不阻断）；OSS 上传同步补上述三旁文件。
+> 5. **`release` job 补 minisign 离线签名（候选④/M8.7 增强）**：新增「生成 SHA256 校验（必做）」+「minisign 签名发行包（可选）」两步——私钥经 Actions secret `MINISIGN_KEY`（minisign 私钥文件内容 base64）传入，未配置则跳过签名仅 SHA256，不阻断发布；Release 上传文件由仅 `*.tar.gz` 扩为 `*.tar.gz`/`*.sha256`/`*.minisig`/`minisign.pub`。
+> 6. **amd64 构建档位固定（#A/M0.5）**：`build` job 由 `ubuntu-latest` 改为 `ubuntu-22.04`（glibc 2.35 固定档），避免 `native-glibc.txt` 随 runner 漂移到 2.39；`build-arm64` 因 GitHub 无 `ubuntu-22.04-arm` 公共 runner 保留 `ubuntu-24.04-arm`（glibc 2.39，arm64 用户回落 compat 属预期，见 §4.3）。
+> 7. **补充公钥资产**：新增 `docs/GCHSJ/minisign.pub`（与 install.sh 内嵌 `MINISIGN_PUBLIC_KEY` 一致，Ed25519 公钥注释名 `F605F4243FA08760`）。**唯一仍待发行方外部动作**：CI 启用 minisign 需在 GitHub 配置 `secrets.MINISIGN_KEY`（未配置自动降级为仅 SHA256，不阻断）；私钥 `.minisign-sec/` 由发行方离线保管。
+> 8. **一致性**：`.github/workflows/build.yml` 经 `diff` 与参考仓库逐字节一致；YAML 语法校验通过。
+>
+> **v0.17 修订要点（安装语言环境检查增强：推荐英文 + 明确不支持日语/韩语）**：
+>
+> 1. **背景**：安装期预检 `check_locale`（install.sh:752）原仅按「英文/中文 UTF-8」放行、其余告警；且正则大小写敏感（`zh_CN.utf8` 小写后缀会误警）。本版在 v0.16 之后按运维诉求做两处增强——**安装检测优先推荐英文**，且**明确声明不支持日语/韩语**。
+> 2. **英文优先推荐**：放行分支与告警文案均改为「建议优先使用英文 `en_US.UTF-8`」；`en*`（任意子区域）配 UTF-8 编码纳入放行区间。理由：QVMConsole 依赖 `virsh`/`qemu-img` 等命令输出进行正确识别，英文环境输出最稳定。
+> 3. **明确排除日语/韩语（ja_/ko_）**：`check_locale` 新增优先级最高（先于编码放行判定）的 `ja_*`/`ko_*` 命中分支——无论编码是否为 UTF-8，检测到即明确 warning「不支持日语/韩语」，提示改用英文或中文；`ja_JP.UTF-8`/`ja_JP.EUC-JP`/`ko_KR.*` 均不误放行。理由：日/韩命令输出解析不可靠，且不在本次国产化适配范围内。
+> 4. **放行区间校正**：统一转小写后判定（zh_CN.utf8 与 zh_CN.UTF-8 等价，消除大小写误报）；放行区间①英文/en/C/POSIX 配 UTF-8、②中文（zh_CN/zh_SG/zh_TW/zh_HK 等）UTF-8、③任意 `.utf8/.utf-8` 结尾；GBK/GB2312/GB18030/latin1/EUC-JP 等非 UTF-8 编码仍拦截提示。
+> 5. **实现**：仅改动 `install.sh::check_locale`（install.sh:752-791），无后端/前端改动。改动经 `bash -n` 语法检查通过 + 22 组语言场景实测（日/韩 → 明确不支持，英/中/其他 UTF-8 → 放行并推荐英文，非 UTF-8 → 拦截）。
+>
+> **v0.18 修订要点（官方 GitHub 仓库核对比对 + 测试机孤儿 VM 清理，代码零回归确认）**：
+>
+> 1. **与官方仓库核对**：克隆 `https://github.com/QVMConsole/QVMConsole.git`（HEAD `c32c865`）全仓比对。结论：**当前仓库 `jeochQVMConsole` 是官方仓库的严格超集**——官方 HEAD 为本地 HEAD（`a4d3461`）的祖先，本地领先 8 提交、落后 0 提交，官方无任何本地缺失内容。重点核对用户关注的五块（虚拟机创建 / 模版导入 / 模版创建虚拟机 / 存储池 / 系统设置存储与网络）：`template/*`、`vmimport/*`（除 OVMF 路径）、`storage/pool/*`（除 lsblk 兼容）、`storage/disk/*`、`network` 核心、前端 `StorageNetworkTab` 均与官方完全一致。本地与官方的全部差异均为**国产化/增强**（SELinux 打标、OVMF 路径动态解析、osinfo-query 兼容、lsblk 兼容、防火墙可插拔后端、看门狗/健康探针/诊断、元数据中英文识别、`--smoke-selfcheck`），无功能回退。
+> 2. **此前排查的「镜像回归」澄清**：上一轮对比的是参考副本 `jeoQVMConsole`（HEAD `782c015`，比官方更新），之见到的 `template/linux_deps.go` 国内镜像差异与 `PassthroughSection` 删减，是**参考副本相对 GitHub 官方的演进**，不是本地相对官方的回归——本地与 GitHub 官方在模板链路完全一致。
+> 3. **测试机孤儿清理（192.168.10.170 / openEuler 2403，面板 `/opt/QVMConsole`）**：发现一台用「模版创建」产生的坏虚拟机 `vmdnqtvq2e`（`template-source`：Ubuntu26.04-LTS 链式克隆，`clone_mode=linked`），其磁盘文件缺失、缺 `domain-config` 元数据、`images` 池无模板，导致面板持续报「磁盘文件缺失 + metadata 未找到」。已清理：`virsh undefine --nvram`（含 NVRAM）移除域 → `pool-refresh vm-disks` 清孤儿卷 → 删除 `vm_caches` 缓存行 → 全表清扫（`vpc_vm_bindings`/`vm_credentials`/`vm_schedules`/`vm_watchdog_events`/`public_ip_bindings`）确认无残留；删除前已备份 XML 至 `/opt/QVMConsole/data/backup_vmdnqtvq2e.xml`。另清理了 `vm_caches` 中 20+ 条既无域定义也无卷的幽灵缓存（`guestfs-*` 等），仅保留真实运行的 `vm8qtqoqp4`。
+> 4. **结论**：代码层面本地无缺口，测试机模版创建报错为**运行态数据残留**（孤儿 VM 缓存 + 缺失磁盘）所致，现已在 libvirt / 卷 / 缓存 / 元数据全链路清理干净。**代码零新增，仅文档修订**。
+
 > ---
 >
 > **v0.13.1 修订要点（openEuler/Kylin 实机回归修复 + 后端 SELinux 自动打标）**：

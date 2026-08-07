@@ -759,16 +759,34 @@ check_locale() {
         current=$(locale 2>/dev/null | awk -F= '/^LANG=/ {print $2}' | tr -d '"' || true)
     fi
 
-    # 国产系统（麒麟/openEuler/UOS 等）默认 zh_CN.UTF-8，直接放行，仅提示
+    # Linux locale 名大小写不敏感（zh_CN.UTF-8 与 zh_CN.utf8 等价），统一下转小写后按编码判定
+    local current_lc current_lang
+    current_lc="$(printf '%s' "${current:-}" | tr '[:upper:]' '[:lower:]')"
+    current_lang="${current_lc%%[_@.-]*}"
+
+    # 日语/韩语不支持（命令输出解析不可靠，且本次不纳入适配范围）——优先于编码放行判定
+    if [[ "$current_lang" =~ ^(ja|ko)$ ]]; then
+        warn "不支持日语（ja_*）/韩语（ko_*）语言环境（当前: ${current:-未知}）。"
+        warn "请切换到英文 en_US.UTF-8 或中文 zh_CN.UTF-8，否则安装可能异常。"
+        warn "安装将继续，面板将以 LANG=C.UTF-8 运行以规避本地化解析问题，但建议安装前修正系统语言。"
+        return 0
+    fi
+
+    # 放行区间：
+    #   ① 英文优先：en / C / POSIX 裸值或配 UTF-8 编码后缀
+    #   ② 中文（含 zh_CN/zh_SG/zh_TW/zh_HK）等 UTF-8 locale
+    #   ③ 任意 .utf8 / .utf-8 结尾的 locale
+    # 以下不匹配 GBK / GB2312 / GB18030 / latin1 等非 UTF-8 编码（中文乱码会导致命令输出解析异常），
+    # 国产系统（麒麟/openEuler/UOS 等）默认 zh_CN.UTF-8，直接放行，仅提示；
     # 面板服务由 setup_service 强制 LANG=C.UTF-8 启动，避免命令输出被本地化导致解析失败
-    if [[ "$current" =~ ^en_US\.UTF-8 ]] || [[ "$current" =~ ^C\.UTF-8 ]] || [[ "$current" =~ ^POSIX\.UTF-8 ]] || [[ "$current" =~ ^zh_CN\.UTF-8 ]]; then
-        info "系统语言环境: ${current}"
+    if [[ "$current_lc" =~ ^(c|posix)(\.utf-?8)?$ ]] || [[ "$current_lc" =~ ^en(_[a-z0-9]+)?(\.utf-?8)?$ ]] || [[ "$current_lc" =~ \.utf-?8$ ]]; then
+        info "系统语言环境: ${current:-未知}（建议优先使用英文 en_US.UTF-8）"
         return 0
     fi
 
     warn "系统语言环境为 ${current:-未知}（非英文/中文 UTF-8）。"
-    warn "QVMConsole 大部分功能依赖命令返回的信息进行正确识别，其他语言环境下可能异常。"
-    warn "安装将继续，面板服务会以 LANG=C.UTF-8 运行，确保命令输出可正确解析。"
+    warn "强烈建议使用英文 en_US.UTF-8：QVMConsole 依赖命令返回的信息进行正确识别，英文环境最稳定。"
+    warn "安装将继续，面板将以 LANG=C.UTF-8 运行，确保命令输出可正确解析。"
     return 0
 }
 

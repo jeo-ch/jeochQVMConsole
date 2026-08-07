@@ -37,7 +37,8 @@ jobs:
   build:
     name: 构建 Linux amd64
     if: contains(inputs.build_platforms, 'amd64')
-    runs-on: ubuntu-latest
+    # #A/M0.5：固定 glibc 2.35 档（ubuntu-22.04），避免 native-glibc.txt 漂移到 2.39
+    runs-on: ubuntu-22.04
 
     steps:
       # ==================== 检出代码 ====================
@@ -77,7 +78,12 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-amd64
-          path: release/kvm-console-linux-amd64.tar.gz
+          path: |
+            release/kvm-console-linux-amd64.tar.gz
+            release/kvm-console-linux-amd64.tar.gz.sha256
+            release/kvm-console-linux-amd64.tar.gz.minisig
+            release/minisign.pub
+          if-no-files-found: warn
 
       # ==================== 阿里云 OSS 上传 ====================
       - name: 安装阿里云 ossutil
@@ -107,6 +113,9 @@ jobs:
           echo "======================================"
 
           ossutil cp release/kvm-console-linux-amd64.tar.gz ${OSS_PATH}/kvm-console-linux-amd64.tar.gz -f
+          ossutil cp release/kvm-console-linux-amd64.tar.gz.sha256 ${OSS_PATH}/kvm-console-linux-amd64.tar.gz.sha256 -f
+          ossutil cp release/kvm-console-linux-amd64.tar.gz.minisig ${OSS_PATH}/kvm-console-linux-amd64.tar.gz.minisig -f
+          ossutil cp release/minisign.pub ${OSS_PATH}/minisign.pub -f
 
           echo "======================================"
           echo "构建产物已上传至阿里云 OSS"
@@ -119,6 +128,8 @@ jobs:
   build-arm64:
     name: 构建 Linux arm64
     if: contains(inputs.build_platforms, 'arm64')
+    # #A/M0.5：GitHub 无 ubuntu-22.04-arm 公共 runner，保留 glibc 2.39 档；
+    # arm64 native-glibc.txt 记录 2.39，aarch64 Ubuntu 22.04(2.35) 用户回落 compat 属预期（见设计文档 §4.3）
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -159,7 +170,12 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: kvm-console-linux-arm64
-          path: release/kvm-console-linux-arm64.tar.gz
+          path: |
+            release/kvm-console-linux-arm64.tar.gz
+            release/kvm-console-linux-arm64.tar.gz.sha256
+            release/kvm-console-linux-arm64.tar.gz.minisig
+            release/minisign.pub
+          if-no-files-found: warn
 
       # ==================== 阿里云 OSS 上传 ====================
       - name: 安装阿里云 ossutil
@@ -189,6 +205,9 @@ jobs:
           echo "======================================"
 
           ossutil cp release/kvm-console-linux-arm64.tar.gz ${OSS_PATH}/kvm-console-linux-arm64.tar.gz -f
+          ossutil cp release/kvm-console-linux-arm64.tar.gz.sha256 ${OSS_PATH}/kvm-console-linux-arm64.tar.gz.sha256 -f
+          ossutil cp release/kvm-console-linux-arm64.tar.gz.minisig ${OSS_PATH}/kvm-console-linux-arm64.tar.gz.minisig -f
+          ossutil cp release/minisign.pub ${OSS_PATH}/minisign.pub -f
 
           echo "======================================"
           echo "构建产物已上传至阿里云 OSS"
@@ -196,6 +215,90 @@ jobs:
 
           echo "已上传文件列表:"
           ossutil ls ${OSS_PATH}/
+
+  # ==================== glibc 2.17 实测（M8.3 / §4.3 P0-3） ====================
+  # 独立 job：等 amd64 构建完成后，在 centos:7（glibc 2.17 基线）容器内实机运行
+  # 默认 compat 档二进制，执行 --version + --smoke-selfcheck，将「理论兼容」升级为「实测通过」。
+  verify-centos7-glibc217:
+    name: 验证 glibc 2.17 兼容（centos:7）
+    needs: build
+    if: always() && !cancelled() && needs.build.result == 'success'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 下载 AMD64 产物
+        uses: actions/download-artifact@v5
+        with:
+          name: kvm-console-linux-amd64
+          path: release-artifacts
+
+      - name: 解压发行包
+        run: |
+          mkdir -p release-src
+          tar -xzf release-artifacts/kvm-console-linux-amd64.tar.gz -C release-src
+          BIN=$(find release-src -maxdepth 3 -name "kvm-console" -type f -perm /111 | sed -n '1p')
+          if [ -z "$BIN" ]; then
+            echo "::error::发行包中未找到默认 compat 档 kvm-console 二进制"
+            exit 1
+          fi
+          echo "测试二进制: $BIN"
+          cp "$BIN" ./kvm-console-compat
+          chmod +x ./kvm-console-compat
+
+      - name: 在 centos:7 中实测 glibc 2.17 兼容
+        run: |
+          docker run --rm -v "$(pwd)/kvm-console-compat:/opt/kvm-console" centos:7 bash -c '
+            set -e
+            echo "=== ldd --version ==="
+            ldd --version | head -1
+            echo "=== kvm-console --version ==="
+            /opt/kvm-console --version
+            echo "=== kvm-console --smoke-selfcheck ==="
+            /opt/kvm-console --smoke-selfcheck
+          '
+          echo "glibc 2.17 实测通过"
+
+  # ==================== arm64 低 glibc 兼容验证（§13.7.2 优化登记，v0.12.1） ====================
+  # centos:7 无 arm64 变体镜像，arm64 侧无法严格测 2.17；用 arm64v8/ubuntu:20.04（glibc 2.31）作最低档冒烟，
+  # 覆盖「arm64 compat 档在低 glibc 环境可运行」核心目标（默认档 GLIBC 上限即 2.17，运行时只依赖更低符号）。
+  verify-arm64-glibc-low:
+    name: 验证 arm64 低 glibc 兼容（ubuntu:20.04 arm64）
+    needs: build-arm64
+    if: always() && !cancelled() && needs.build-arm64.result == 'success' && contains(inputs.build_platforms, 'arm64')
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: 下载 ARM64 产物
+        uses: actions/download-artifact@v5
+        with:
+          name: kvm-console-linux-arm64
+          path: release-artifacts
+
+      - name: 解压发行包
+        run: |
+          mkdir -p release-src
+          tar -xzf release-artifacts/kvm-console-linux-arm64.tar.gz -C release-src
+          BIN=$(find release-src -maxdepth 3 -name "kvm-console" -type f -perm /111 | sed -n '1p')
+          if [ -z "$BIN" ]; then
+            echo "::error::发行包中未找到默认 compat 档 kvm-console 二进制"
+            exit 1
+          fi
+          echo "测试二进制: $BIN"
+          cp "$BIN" ./kvm-console-compat
+          chmod +x ./kvm-console-compat
+
+      - name: 在 arm64v8/ubuntu:20.04 中实测低 glibc 兼容
+        run: |
+          docker run --rm --platform linux/arm64/v8 -v "$(pwd)/kvm-console-compat:/opt/kvm-console" arm64v8/ubuntu:20.04 bash -c '
+            set -e
+            echo "=== ldd --version ==="
+            ldd --version | head -1
+            echo "=== kvm-console --version ==="
+            /opt/kvm-console --version
+            echo "=== kvm-console --smoke-selfcheck ==="
+            /opt/kvm-console --smoke-selfcheck
+          '
+          echo "arm64 低 glibc 实测通过（glibc 2.31，替代不可用的 centos:7/2.17 arm64 镜像）"
 
   # ==================== GitHub Release 统一发布 ====================
   # 独立 job：等待 amd64/arm64 并行构建全部完成，统一下载产物并创建 Release
@@ -222,13 +325,46 @@ jobs:
           name: kvm-console-linux-arm64
           path: release-artifacts
 
+      # ==================== minisign 离线签名（可选，§14.5 候选④） ====================
+      # 私钥经 Actions secret MINISIGN_KEY 传入（minisign 私钥文件内容 base64 编码）。
+      # secret 未配置则跳过签名（仅 SHA256），不阻断发布。公钥由发行方在生成私钥时离线保留并另行发布。
+      - name: 生成 SHA256 校验（必做）
+        run: |
+          set -e
+          for tarball in release-artifacts/*.tar.gz; do
+            sha256sum "$tarball" > "$tarball.sha256"
+            echo "已生成: $tarball.sha256"
+          done
+
+      - name: minisign 签名发行包（可选）
+        env:
+          MINISIGN_KEY_B64: ${{ secrets.MINISIGN_KEY }}
+        run: |
+          if [ -z "$MINISIGN_KEY_B64" ]; then
+            echo "未配置 secrets.MINISIGN_KEY，跳过 minisign 签名（仅 SHA256）"
+            exit 0
+          fi
+          set -e
+          sudo apt-get update && sudo apt-get install -y minisign
+          mkdir -p "$HOME/.minisign"
+          echo "$MINISIGN_KEY_B64" | base64 -d > "$HOME/.minisign/minisign.key"
+          chmod 600 "$HOME/.minisign/minisign.key"
+          for tarball in release-artifacts/*.tar.gz; do
+            minisign -S -s "$HOME/.minisign/minisign.key" -m "$tarball" -x "$tarball.minisig"
+            echo "已签名: $tarball -> $tarball.minisig"
+          done
+
       # ==================== 创建 GitHub Release ====================
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
           name: v${{ inputs.version }}
-          files: release-artifacts/*.tar.gz
+          files: |
+            release-artifacts/*.tar.gz
+            release-artifacts/*.sha256
+            release-artifacts/*.minisig
+            release-artifacts/minisign.pub
           generate_release_notes: true
           draft: false
           prerelease: false
