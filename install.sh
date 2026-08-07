@@ -3322,7 +3322,9 @@ verify_minisign_signature() {
     local sig_file="${tarball_path}.minisig"
     local pub_file=""
     local tmp_key=""      # 内嵌公钥的临时文件（mktemp），仅此文件在函数返回时清理
-    trap 'rm -f "$tmp_key"' RETURN
+    # set -E errtrace 下 RETURN trap 会"继承"到调用方外层函数（extract_tarball）返回时再次触发，
+    # 彼时 tmp_key 已不在作用域，set -u 下会报"未绑定变量"。故 trap 内引用用 :-\${tmp_key:- 兜底为空串。
+    trap 'rm -f "${tmp_key:-}"' RETURN
 
     # 无 minisign 命令 → 降级（提示，不阻断）
     if ! command -v minisign >/dev/null 2>&1; then
