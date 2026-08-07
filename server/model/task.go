@@ -67,9 +67,12 @@ const (
 	TaskTypePasswordBreachNotify            = "password_breach_notify"             // 泄露密码通知
 )
 
-// Task 异步任务模型（纯内存存储，不持久化）
+// Task 异步任务模型。
+// 运行期以内存为主（读写快），同时在 SQLite 持久化一份副本：面板重启后恢复任务
+// 记录与自增 ID 序列，并将重启前遗留的 pending/running 任务标记为 failed（任务中断），
+// 避免"重启即失联 + 任务 ID 归零"导致前端句柄失效。
 type Task struct {
-	ID        uint      `json:"id"`
+	ID        uint      `gorm:"primaryKey" json:"id"`
 	Type      string    `json:"type"`       // 任务类型
 	Status    string    `json:"status"`     // 任务状态
 	Params    string    `json:"params"`     // 任务参数（JSON）
@@ -79,4 +82,9 @@ type Task struct {
 	CreatedBy string    `json:"created_by"` // 创建人
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableName 指定持久化表名
+func (Task) TableName() string {
+	return "async_tasks"
 }

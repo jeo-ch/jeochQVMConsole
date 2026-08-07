@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"kvm_console/logger"
@@ -17,6 +18,22 @@ import (
 
 // diskSourceFileRe 匹配 VM XML 中所有磁盘 <source file='...'>（含 backingStore）。
 var diskSourceFileRe = regexp.MustCompile(`<source[^>]*file='([^']+)'`)
+
+// vmPowerLocks 串行化同一虚拟机的电源类操作（开机/关机/断电/重启），
+// 避免并发触发两次 start/destroy 对同一 backing 镜像的 chattr 竞态与 libvirt 重复启动。
+var vmPowerLocks sync.Map
+
+// withVMPowerLock 在同一虚拟机的电源操作上串行执行 fn。
+func withVMPowerLock(vmName string, fn func() error) error {
+	key := strings.TrimSpace(vmName)
+	if key == "" {
+		return fn()
+	}
+	value, _ := vmPowerLocks.LoadOrStore(key, &sync.Mutex{})
+	value.(*sync.Mutex).Lock()
+	defer value.(*sync.Mutex).Unlock()
+	return fn()
+}
 
 // ensureVMSELinuxImageLabels 在 SELinux Enforcing 下，对 VM 定义中所有磁盘镜像
 // 文件（含 backing 模板）的父目录做 restorecon。libvirt 启动时若发现 backing
@@ -65,6 +82,15 @@ func withVMDiskImagesUnlocked(name string, fn func() error) error {
 		vmXML = xmlRes.Stdout
 	}
 	var unlocked []string
+	// 在解锁循环之前注册恢复 defer：即使循环或 fn 中途 panic，已解锁的 immutable
+	// 文件也能被恢复，避免保护被静默破坏。
+	defer func() {
+		for _, p := range unlocked {
+			if err := utils.SetFileImmutable(p); err != nil {
+				logger.App.Error("恢复磁盘 immutable 失败", "path", p, "error", err.Error())
+			}
+		}
+	}()
 	seen := map[string]bool{}
 	for _, m := range diskSourceFileRe.FindAllStringSubmatch(vmXML, -1) {
 		// XML 的 <source file> 仅列出覆盖层（overlay），而链式克隆的 backing 模板
@@ -90,11 +116,6 @@ func withVMDiskImagesUnlocked(name string, fn func() error) error {
 			}
 		}
 	}
-	defer func() {
-		for _, p := range unlocked {
-			_ = utils.SetFileImmutable(p)
-		}
-	}()
 	return fn()
 }
 
@@ -102,15 +123,30 @@ func withVMDiskImagesUnlocked(name string, fn func() error) error {
 // 返回从顶层到最底层所有文件的路径（含自身）。中层级文件可能同时是上层 overlay 的
 // backing 与自身的镜像，借助 lsattr/chattr 幂等处理；非 qcow2/不可读文件仅返回自身。
 // 在 withVMDiskImagesUnlocked 中用于把 immutable 的共享模板一并纳入临时解锁集合。
+// 单层解析带 10s 超时，整条链最多解析 16 层或累计耗时 30s，避免慢盘场景下
+// 拖垮 VM 启动接口。
 func resolveQcow2BackingChain(path string) []string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil
 	}
+	const (
+		maxLayers  = 16
+		maxTotal   = 30 * time.Second
+		layerLimit = 10 * time.Second
+	)
 	result := []string{path}
 	cur := path
-	for i := 0; i < 64; i++ {
-		res := utils.ExecShellQuiet(fmt.Sprintf("qemu-img info -U %s 2>/dev/null | grep 'backing file:' | awk '{print $3}'", utils.ShellSingleQuote(cur)))
+	start := time.Now()
+	for i := 0; i < maxLayers; i++ {
+		if time.Since(start) > maxTotal {
+			logger.App.Warn("解析 qcow2 backing 链超时，仅解锁已解析层", "path", path)
+			break
+		}
+		res := utils.ExecShellQuietWithTimeout(
+			fmt.Sprintf("qemu-img info -U %s 2>/dev/null | grep 'backing file:' | awk '{print $3}'", utils.ShellSingleQuote(cur)),
+			layerLimit,
+		)
 		backing := strings.TrimSpace(res.Stdout)
 		if backing == "" || backing == cur {
 			break
@@ -130,12 +166,16 @@ func resolveQcow2BackingChain(path string) []string {
 
 // StartVM 启动虚拟机
 func StartVM(name string) error {
-	return startVM(name, true)
+	return withVMPowerLock(name, func() error {
+		return startVM(name, true)
+	})
 }
 
 // StartVMPreserveRebootAction 启动虚拟机，但保留当前 on_reboot 策略。
 func StartVMPreserveRebootAction(name string) error {
-	return startVM(name, false)
+	return withVMPowerLock(name, func() error {
+		return startVM(name, false)
+	})
 }
 
 func applyVMRuntimeNetworkState(name string) error {
@@ -366,63 +406,71 @@ func fixBackingStoreXML(vmName string) {
 
 // ShutdownVM 正常关机
 func ShutdownVM(name string) error {
-	if err := D.HookEnsureVMNotMigrating(name, "关机"); err != nil {
-		return err
-	}
-	if err := libvirt_rpc.ShutdownDomainRPC(name); err != nil {
-		return fmt.Errorf("关机失败: %w", err)
-	}
-	return nil
+	return withVMPowerLock(name, func() error {
+		if err := D.HookEnsureVMNotMigrating(name, "关机"); err != nil {
+			return err
+		}
+		if err := libvirt_rpc.ShutdownDomainRPC(name); err != nil {
+			return fmt.Errorf("关机失败: %w", err)
+		}
+		return nil
+	})
 }
 
 // DestroyVM 强制断电
 func DestroyVM(name string) error {
-	if err := D.HookEnsureVMNotMigrating(name, "强制断电"); err != nil {
-		return err
-	}
-	if err := libvirt_rpc.DestroyDomainRPC(name); err != nil {
-		return fmt.Errorf("强制断电失败: %w", err)
-	}
-	UpdateVMRuntimeState(name, "shut off", time.Now())
-	return nil
+	return withVMPowerLock(name, func() error {
+		if err := D.HookEnsureVMNotMigrating(name, "强制断电"); err != nil {
+			return err
+		}
+		if err := libvirt_rpc.DestroyDomainRPC(name); err != nil {
+			return fmt.Errorf("强制断电失败: %w", err)
+		}
+		UpdateVMRuntimeState(name, "shut off", time.Now())
+		return nil
+	})
 }
 
 // RebootVM 重启虚拟机
 func RebootVM(name string) error {
-	if err := D.HookEnsureVMNotMigrating(name, "重启"); err != nil {
-		return err
-	}
-	if err := D.EnsureMaintenanceModeDisabled("重启虚拟机"); err != nil {
-		return err
-	}
+	return withVMPowerLock(name, func() error {
+		if err := D.HookEnsureVMNotMigrating(name, "重启"); err != nil {
+			return err
+		}
+		if err := D.EnsureMaintenanceModeDisabled("重启虚拟机"); err != nil {
+			return err
+		}
 
-	// 先修复 on_reboot 配置（Cockpit/virt-install 默认 destroy 导致重启变关机）
-	FixOnReboot(name)
+		// 先修复 on_reboot 配置（Cockpit/virt-install 默认 destroy 导致重启变关机）
+		FixOnReboot(name)
 
-	if err := libvirt_rpc.RebootDomainRPC(name); err != nil {
-		return fmt.Errorf("重启失败: %w", err)
-	}
-	ResetVMContinuousRuntime(name, time.Now())
-	return nil
+		if err := libvirt_rpc.RebootDomainRPC(name); err != nil {
+			return fmt.Errorf("重启失败: %w", err)
+		}
+		ResetVMContinuousRuntime(name, time.Now())
+		return nil
+	})
 }
 
 // ResetVM 硬重置虚拟机，适用于 QEMU internal-error 暂停等无法 resume 的状态。
 func ResetVM(name string) error {
-	if err := D.HookEnsureVMNotMigrating(name, "重置"); err != nil {
-		return err
-	}
-	if err := D.EnsureMaintenanceModeDisabled("重置虚拟机"); err != nil {
-		return err
-	}
-	FixOnReboot(name)
-	if err := libvirt_rpc.ResetDomainRPC(name); err != nil {
-		return fmt.Errorf("重置失败: %w", err)
-	}
-	ResetVMContinuousRuntime(name, time.Now())
-	if err := D.ApplyVPCBindingRuntime(name); err != nil {
-		return fmt.Errorf("重置成功，但应用 VPC 网络失败: %w", err)
-	}
-	return nil
+	return withVMPowerLock(name, func() error {
+		if err := D.HookEnsureVMNotMigrating(name, "重置"); err != nil {
+			return err
+		}
+		if err := D.EnsureMaintenanceModeDisabled("重置虚拟机"); err != nil {
+			return err
+		}
+		FixOnReboot(name)
+		if err := libvirt_rpc.ResetDomainRPC(name); err != nil {
+			return fmt.Errorf("重置失败: %w", err)
+		}
+		ResetVMContinuousRuntime(name, time.Now())
+		if err := D.ApplyVPCBindingRuntime(name); err != nil {
+			return fmt.Errorf("重置成功，但应用 VPC 网络失败: %w", err)
+		}
+		return nil
+	})
 }
 
 // FixOnReboot 修复虚拟机的 on_reboot 配置（destroy → restart）

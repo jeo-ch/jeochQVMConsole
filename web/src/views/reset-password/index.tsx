@@ -33,6 +33,15 @@ export default function ResetPasswordPage() {
     if (!token) {
       Toast.error({ content: '重置令牌不存在，请重新发起找回密码', duration: 3 })
       navigate('/login', { replace: true })
+    } else {
+      // 读取后立即从地址栏剥离明文令牌，避免其残留在浏览器历史 / 跳转 referrer 中
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('token')
+        window.history.replaceState({}, '', url.toString())
+      } catch {
+        /* 忽略，不影响功能 */
+      }
     }
   }, [token, navigate])
 

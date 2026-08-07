@@ -207,23 +207,18 @@ func revertExternalSnapshot(vmName, snapName string) error {
 	for _, disk := range currentDiskList {
 		restoreDisk, ok := restoreDisks[disk.target]
 		if ok && disk.source != restoreDisk {
-			// 转义路径中的特殊字符
-			escapedOld := strings.ReplaceAll(disk.source, "/", "\\/")
-			escapedOld = strings.ReplaceAll(escapedOld, ".", "\\.")
-			escapedNew := strings.ReplaceAll(restoreDisk, "/", "\\/")
+			escapedOld := sedEscapeReplacement(disk.source)
+			escapedNew := sedEscapeReplacement(restoreDisk)
 			sedParts = append(sedParts, fmt.Sprintf("s|%s|%s|g", escapedOld, escapedNew))
 		}
 	}
 
 	if len(sedParts) > 0 {
-		sedCmd := strings.Join(sedParts, "; ")
-		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '%s'\" virsh edit %s", sedCmd, utils.ShellSingleQuote(vmName))
-		editResult := utils.ExecShell(shellCmd)
-		if editResult.Error != nil {
+		if err := virshEditWithSed(vmName, sedParts); err != nil {
 			for _, created := range createdRestoreOverlays {
 				_ = os.Remove(created)
 			}
-			return fmt.Errorf("修改虚拟机磁盘配置失败: %s", editResult.Stderr)
+			return fmt.Errorf("修改虚拟机磁盘配置失败: %w", err)
 		}
 	}
 
@@ -233,10 +228,9 @@ func revertExternalSnapshot(vmName, snapName string) error {
 	if dumpResult.Error == nil {
 		hasBackingStore := strings.Contains(dumpResult.Stdout, "<backingStore")
 		if hasBackingStore {
-			shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", utils.ShellSingleQuote(vmName))
-			cleanResult := utils.ExecShell(shellCmd)
-			if cleanResult.Error != nil {
-				logger.App.Warn("清理 backingStore 失败", "stderr", cleanResult.Stderr)
+			cleanResult := virshEditWithSed(vmName, []string{"/<backingStore type/,/<\\/backingStore>/d"})
+			if cleanResult != nil {
+				logger.App.Warn("清理 backingStore 失败", "error", cleanResult.Error())
 			}
 		}
 	}

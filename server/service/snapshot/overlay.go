@@ -109,13 +109,22 @@ func replaceVMDiskSource(vmName, oldPath, newPath string) error {
 	if oldPath == "" || newPath == "" || oldPath == newPath {
 		return nil
 	}
-	escapedOld := strings.ReplaceAll(oldPath, "/", "\\/")
-	escapedOld = strings.ReplaceAll(escapedOld, ".", "\\.")
-	escapedNew := strings.ReplaceAll(newPath, "/", "\\/")
-	shellCmd := fmt.Sprintf("EDITOR=\"sed -i 's|%s|%s|g'\" virsh edit %s", escapedOld, escapedNew, utils.ShellSingleQuote(vmName))
-	editResult := utils.ExecShell(shellCmd)
-	if editResult.Error != nil {
-		return fmt.Errorf("修改虚拟机磁盘配置失败: %s", editResult.Stderr)
+	// sed 表达式，分隔符用 | ，路径中的 / . 无需转义（分隔符不是 / .）。
+	escapedOld := sedEscapeReplacement(oldPath)
+	escapedNew := sedEscapeReplacement(newPath)
+	expr := fmt.Sprintf("s|%s|%s|g", escapedOld, escapedNew)
+	if err := virshEditWithSed(vmName, []string{expr}); err != nil {
+		return fmt.Errorf("修改虚拟机磁盘配置失败: %w", err)
 	}
 	return nil
+}
+
+// sedEscapeReplacement 对 sed 替换表达式中的特殊字符做最小转义。
+// 以 | 作分隔符时，需转义 |、\ 和 &（& 在替换串中表示整个匹配）。路径来自 VM XML，
+// 安全上已通过 temp-file 方式规避 shell，此处仅保证 sed 替换语义正确。
+func sedEscapeReplacement(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "&", "\\&")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return s
 }

@@ -288,6 +288,11 @@ func ExecShellQuiet(command string) *CmdResult {
 	return ExecCommandQuiet("bash", "-c", command)
 }
 
+// ExecShellQuietWithTimeout 与 ExecShellQuiet 相同，但带命令超时。
+func ExecShellQuietWithTimeout(command string, timeout time.Duration) *CmdResult {
+	return ExecCommandQuietWithTimeout("bash", timeout, "-c", command)
+}
+
 // execCommandWithLogLevel 执行命令，使用指定日志级别记录非零退出码
 func execCommandWithLogLevel(name string, logFn func(string, ...any), timeout time.Duration, args ...string) *CmdResult {
 	cmd := exec.Command(name, args...)

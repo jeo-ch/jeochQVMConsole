@@ -317,11 +317,15 @@ export const buildBatchClonePayload = (
     hostname: '', // 批量模式每台由后端自动生成独立主机名
     template_user: initUser,
     extra_disks: buildExtraDisksPayload(form),
+    host_devices: form.host_devices,
+    system_disk_iops: buildSystemDiskIopsPayload(form, ctx.isAdmin),
     pcie_root_ports: form.pcie_root_ports,
   }
   const cpuLimitPercent = buildCPULimitPercentPayload(form, ctx.isAdmin)
   if (cpuLimitPercent !== undefined) payload.cpu_limit_percent = cpuLimitPercent
   if (ctx.isAdmin) payload.cpu_affinity = (form.cpu_affinity || '').trim()
+  const memoryPayload = buildMemoryDynamicPayload(form, false)
+  if (memoryPayload) payload.memory_dynamic = memoryPayload
   return payload
 }
 

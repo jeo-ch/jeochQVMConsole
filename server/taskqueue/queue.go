@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -53,11 +54,22 @@ func nextTaskID() uint {
 	return uint(atomic.AddUint64(&taskIDSeq, 1))
 }
 
-// storeTask 存储任务
+// storeTask 存储任务（内存 + SQLite 持久化）
 func storeTask(task *model.Task) {
 	taskStoreMu.Lock()
-	defer taskStoreMu.Unlock()
 	taskStore[task.ID] = task
+	taskStoreMu.Unlock()
+	persistTaskDB(task)
+}
+
+// persistTaskDB 将任务写入 SQLite。数据库失败不影响内存主流程，仅记录日志。
+func persistTaskDB(task *model.Task) {
+	if task == nil {
+		return
+	}
+	if err := model.DB.Save(task).Error; err != nil {
+		logger.App.Warn("任务持久化失败", "id", task.ID, "error", err.Error())
+	}
 }
 
 // getTask 获取任务
@@ -103,21 +115,37 @@ func GetActiveTask(taskType string) (*model.Task, bool) {
 	return found, found != nil
 }
 
-// updateTask 更新任务字段
+// updateTask 更新任务字段。仅在状态进入终态（success/failed/canceled）时落库，
+// 进度类高频更新只写内存，避免频繁 SQLite 写入拖慢任务执行。
 func updateTask(id uint, updater func(task *model.Task)) {
 	taskStoreMu.Lock()
-	defer taskStoreMu.Unlock()
 	if task, ok := taskStore[id]; ok {
 		updater(task)
 		task.UpdatedAt = time.Now()
+		if isTerminalStatus(task.Status) {
+			persistTaskDB(copyTaskForPersist(task))
+		}
 	}
+	taskStoreMu.Unlock()
+}
+
+// isTerminalStatus 判断任务状态是否为终态
+func isTerminalStatus(status string) bool {
+	return status == model.TaskStatusSuccess || status == model.TaskStatusFailed || status == model.TaskStatusCanceled
+}
+
+// copyTaskForPersist 复制任务用于落库（不复制可变引用，落库仅需标量字段）。
+func copyTaskForPersist(t *model.Task) *model.Task {
+	c := *t
+	return &c
 }
 
 // deleteTask 删除任务
 func deleteTask(id uint) {
 	taskStoreMu.Lock()
-	defer taskStoreMu.Unlock()
 	delete(taskStore, id)
+	taskStoreMu.Unlock()
+	model.DB.Where("id = ?", id).Delete(&model.Task{})
 }
 
 // storeCancelFn 存储取消函数
@@ -190,12 +218,53 @@ var taskChan = make(chan uint, 100)
 
 // Start 启动任务队列消费者和自动清理
 func Start(workerCount int) {
+	recoverFromPersistence()
 	for i := 0; i < workerCount; i++ {
 		go worker(i)
 	}
 	// 启动 24 小时自动清理协程
 	go autoCleanup()
 	logger.App.Info("任务队列已启动", "workers", workerCount)
+}
+
+// recoverFromPersistence 从 SQLite 恢复任务记录与 ID 序列：
+//  1. 恢复自增 ID 到历史最大值，保证重启后任务 ID 不重复、前端句柄不回退；
+//  2. 把重启前遗留的 pending/running 任务标记为 failed（任务中断），并向内存装载
+//     之前已完成的历史任务，供前端列表/详情展示。
+func recoverFromPersistence() {
+	var maxID uint
+	if err := model.DB.Model(&model.Task{}).Select("COALESCE(MAX(id),0)").Scan(&maxID).Error; err != nil {
+		logger.App.Warn("恢复任务 ID 序列失败", "error", err.Error())
+	}
+	if maxID > uint(atomic.LoadUint64(&taskIDSeq)) {
+		atomic.StoreUint64(&taskIDSeq, uint64(maxID))
+	}
+
+	var rows []*model.Task
+	if err := model.DB.Order("id asc").Find(&rows).Error; err != nil {
+		logger.App.Warn("恢复任务记录失败", "error", err.Error())
+		return
+	}
+	interrupted := 0
+	taskStoreMu.Lock()
+	for _, t := range rows {
+		if t.Status == model.TaskStatusPending || t.Status == model.TaskStatusRunning {
+			if t.Status == model.TaskStatusRunning ||
+				(t.Status == model.TaskStatusPending) {
+				// 面板重启后任务进程已被终止，标记为任务中断
+				t.Status = model.TaskStatusFailed
+				t.Message = "面板重启，任务中断"
+				t.UpdatedAt = time.Now()
+				interrupted++
+				persistTaskDB(t)
+			}
+		}
+		taskStore[t.ID] = t
+	}
+	taskStoreMu.Unlock()
+	if interrupted > 0 {
+		logger.App.Warn("本次启动发现中断任务", "count", interrupted)
+	}
 }
 
 // Submit 提交任务
@@ -222,8 +291,17 @@ func Submit(taskType, params, createdBy string) (*model.Task, error) {
 		Message:  "任务已提交",
 	})
 
-	// 发送到任务通道
-	taskChan <- task.ID
+	// 发送到任务通道（等待中任务进入队列；队列已满时不阻塞调用方，避免被慢任务拖死）
+	select {
+	case taskChan <- task.ID:
+	default:
+		task.Status = model.TaskStatusFailed
+		task.Message = "任务队列已满，请稍后重试"
+		task.UpdatedAt = time.Now()
+		// 撤销入队，并同步落库为终态，避免前端看到一条永远无法执行的任务
+		persistTaskDB(copyTaskForPersist(task))
+		return task, fmt.Errorf("任务队列已满")
+	}
 	logger.App.Info("任务已提交", "id", task.ID, "type", taskType)
 	return task, nil
 }
@@ -237,23 +315,41 @@ func SubmitWithStruct(taskType string, params interface{}, createdBy string) (*m
 	return Submit(taskType, string(paramsJSON), createdBy)
 }
 
-// worker 任务消费者
+// worker 任务消费者：每个 worker 独立 recover，单个 panic 不会拖垮阻塞整个 worker，
+// 而是标记任务失败后继续处理下一个任务。
 func worker(id int) {
 	for taskID := range taskChan {
-		processTask(id, taskID)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.App.Error("Worker执行任务时 panic", "worker", id, "id", taskID, "panic", r, "stack", string(debug.Stack()))
+				}
+			}()
+			processTask(id, taskID)
+		}()
 	}
 }
 
 // processTask 处理单个任务
 func processTask(workerID int, taskID uint) {
-	task, ok := getTask(taskID)
-	if !ok {
+	// 在锁内读取任务状态与类型，避免与 CancelTaskForUser 并发写产生数据竞争
+	taskType, status := func() (string, string) {
+		taskStoreMu.RLock()
+		defer taskStoreMu.RUnlock()
+		if t, ok := taskStore[taskID]; ok {
+			return t.Type, t.Status
+		}
+		return "", ""
+	}()
+
+	if status == "" {
 		logger.App.Warn("Worker获取任务失败", "worker", workerID, "id", taskID, "error", "任务不存在")
 		return
 	}
+	taskType = strings.TrimSpace(taskType)
 
 	// 检查是否已取消
-	if task.Status == model.TaskStatusCanceled {
+	if status == model.TaskStatusCanceled {
 		logger.App.Info("任务已取消跳过", "worker", workerID, "id", taskID)
 		return
 	}
@@ -274,32 +370,32 @@ func processTask(workerID int, taskID uint) {
 
 	broadcastEvent(TaskEvent{
 		TaskID:   taskID,
-		Type:     task.Type,
+		Type:     taskType,
 		Status:   model.TaskStatusRunning,
 		Progress: 0,
 		Message:  "任务开始执行",
 	})
 
-	logger.App.Info("开始执行任务", "worker", workerID, "id", taskID, "type", task.Type)
+	logger.App.Info("开始执行任务", "worker", workerID, "id", taskID, "type", taskType)
 
 	// 查找处理器
 	handlersMu.RLock()
-	handler, exists := handlers[task.Type]
+	handler, exists := handlers[taskType]
 	handlersMu.RUnlock()
 
 	if !exists {
 		updateTask(taskID, func(t *model.Task) {
 			t.Status = model.TaskStatusFailed
-			t.Message = "未找到任务处理器: " + task.Type
+			t.Message = "未找到任务处理器: " + taskType
 		})
 		broadcastEvent(TaskEvent{
 			TaskID:   taskID,
-			Type:     task.Type,
+			Type:     taskType,
 			Status:   model.TaskStatusFailed,
 			Progress: 0,
-			Message:  "未找到任务处理器: " + task.Type,
+			Message:  "未找到任务处理器: " + taskType,
 		})
-		logger.App.Warn("Worker未找到处理器", "worker", workerID, "type", task.Type)
+		logger.App.Warn("Worker未找到处理器", "worker", workerID, "type", taskType)
 		return
 	}
 
@@ -311,16 +407,20 @@ func processTask(workerID int, taskID uint) {
 		})
 		broadcastEvent(TaskEvent{
 			TaskID:   taskID,
-			Type:     task.Type,
+			Type:     taskType,
 			Status:   model.TaskStatusRunning,
 			Progress: progress,
 			Message:  message,
 		})
 	}
 
-	// 执行任务
+	// 执行任务（在受控上下文中运行，panic 不会拖垮 worker）
 	startTime := time.Now()
-	result, err := handler(ctx, task, progressFn)
+	taskSnapshot, hasTask := getTask(taskID)
+	if !hasTask {
+		return
+	}
+	result, err := safeExecuteHandler(handler, ctx, taskSnapshot, taskID, taskType, progressFn)
 	duration := time.Since(startTime)
 
 	// 判断是否是取消导致的错误
@@ -332,9 +432,9 @@ func processTask(workerID int, taskID uint) {
 		})
 		broadcastEvent(TaskEvent{
 			TaskID:   taskID,
-			Type:     task.Type,
+			Type:     taskType,
 			Status:   model.TaskStatusCanceled,
-			Progress: task.Progress,
+			Progress: taskSnapshot.Progress,
 			Message:  "任务已被用户取消",
 		})
 		logger.App.Info("任务已取消", "worker", workerID, "id", taskID, "duration", duration)
@@ -347,7 +447,7 @@ func processTask(workerID int, taskID uint) {
 		})
 		broadcastEvent(TaskEvent{
 			TaskID:   taskID,
-			Type:     task.Type,
+			Type:     taskType,
 			Status:   model.TaskStatusFailed,
 			Progress: 100,
 			Message:  "任务失败: " + err.Error(),
@@ -362,13 +462,38 @@ func processTask(workerID int, taskID uint) {
 		})
 		broadcastEvent(TaskEvent{
 			TaskID:   taskID,
-			Type:     task.Type,
+			Type:     taskType,
 			Status:   model.TaskStatusSuccess,
 			Progress: 100,
 			Message:  "任务完成",
 		})
 		logger.App.Info("任务完成", "worker", workerID, "id", taskID, "duration", duration)
 	}
+}
+
+// safeExecuteHandler 在带 panic 捕获的受控上下文中执行任务处理器：
+// 处理器 panic 时不会拖垮整个作业队列，而是记录日志并将该任务标记为失败。
+func safeExecuteHandler(handler TaskFunc, ctx context.Context, task *model.Task, taskID uint, taskType string, progressFn func(int, string)) (result string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.App.Error("task handler panic", "id", taskID, "type", taskType, "panic", r, "stack", string(debug.Stack()))
+			updateTask(taskID, func(t *model.Task) {
+				t.Status = model.TaskStatusFailed
+				t.Result = ""
+				t.Progress = 100
+				t.Message = fmt.Sprintf("任务中断: %v", r)
+			})
+			broadcastEvent(TaskEvent{
+				TaskID:   taskID,
+				Type:     taskType,
+				Status:   model.TaskStatusFailed,
+				Progress: 100,
+				Message:  fmt.Sprintf("任务中断: %v", r),
+			})
+			err = fmt.Errorf("task panic: %v", r)
+		}
+	}()
+	return handler(ctx, task, progressFn)
 }
 
 // ===================== 查询接口 =====================
@@ -525,10 +650,11 @@ func CancelTaskForUser(taskID uint, username, role string) error {
 
 	switch task.Status {
 	case model.TaskStatusPending:
-		// 等待中的任务：直接标记取消
+		// 等待中的任务：直接标记取消并落库终态
 		task.Status = model.TaskStatusCanceled
 		task.Message = "任务已取消"
 		task.UpdatedAt = time.Now()
+		persistTaskDB(copyTaskForPersist(task))
 
 	case model.TaskStatusRunning:
 		// 运行中的任务：触发 context 取消信号
@@ -563,9 +689,7 @@ func ClearFinishedTasks() (int64, error) {
 // ClearFinishedTasksForUser 清理指定用户可访问的已结束任务。
 func ClearFinishedTasksForUser(username, role string) (int64, error) {
 	taskStoreMu.Lock()
-	defer taskStoreMu.Unlock()
-
-	var count int64
+	var ids []uint
 	for id, task := range taskStore {
 		if !canAccessTask(task, username, role) {
 			continue
@@ -574,11 +698,15 @@ func ClearFinishedTasksForUser(username, role string) (int64, error) {
 			task.Status == model.TaskStatusFailed ||
 			task.Status == model.TaskStatusCanceled {
 			delete(taskStore, id)
-			count++
+			ids = append(ids, id)
 		}
 	}
+	taskStoreMu.Unlock()
 
-	return count, nil
+	if len(ids) > 0 {
+		model.DB.Where("id IN ?", ids).Delete(&model.Task{})
+	}
+	return int64(len(ids)), nil
 }
 
 // ===================== 24小时自动清理 =====================
@@ -596,20 +724,24 @@ func autoCleanup() {
 // cleanupExpiredTasks 清理超过 24 小时的任务
 func cleanupExpiredTasks() {
 	taskStoreMu.Lock()
-	defer taskStoreMu.Unlock()
-
 	cutoff := time.Now().Add(-24 * time.Hour)
 	count := 0
+	var ids []uint
 	for id, task := range taskStore {
 		// 只清理已结束的任务（不清理正在运行或等待中的）
 		if task.CreatedAt.Before(cutoff) &&
 			task.Status != model.TaskStatusPending &&
 			task.Status != model.TaskStatusRunning {
 			delete(taskStore, id)
+			ids = append(ids, id)
 			count++
 		}
 	}
+	taskStoreMu.Unlock()
 
+	if len(ids) > 0 {
+		model.DB.Where("id IN ?", ids).Delete(&model.Task{})
+	}
 	if count > 0 {
 		logger.App.Info("自动清理过期任务", "deleted", count)
 	}

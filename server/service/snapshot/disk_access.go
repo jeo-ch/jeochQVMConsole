@@ -35,10 +35,8 @@ func FixSnapshotDiskPermissions(vmName string) {
 	// 清理后让 libvirt 在下次启动时自动检测并生成完整的 backing chain 权限
 	dumpResult := utils.ExecCommand("virsh", "dumpxml", vmName)
 	if dumpResult.Error == nil && strings.Contains(dumpResult.Stdout, "<backingStore") {
-		shellCmd := fmt.Sprintf("EDITOR=\"sed -i '/<backingStore type/,/<\\/backingStore>/d'\" virsh edit %s", utils.ShellSingleQuote(vmName))
-		cleanResult := utils.ExecShell(shellCmd)
-		if cleanResult.Error != nil {
-			logger.App.Warn("清理 backingStore XML 失败", "stderr", cleanResult.Stderr)
+		if err := virshEditWithSed(vmName, []string{"/<backingStore type/,/<\\/backingStore>/d"}); err != nil {
+			logger.App.Warn("清理 backingStore XML 失败", "error", err.Error())
 		} else {
 			logger.App.Info("已清理 backingStore XML", "vm", vmName)
 		}

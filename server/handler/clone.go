@@ -34,6 +34,7 @@ type CloneVmRequest struct {
 	TemplateType         string                            `json:"template_type"`
 	CloneMode            string                            `json:"clone_mode"`
 	VCPU                 int                               `json:"vcpu" binding:"required"`
+	MaxVCPU              int                               `json:"max_vcpu"` // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	RAM                  int                               `json:"ram" binding:"required"`
 	DiskSize             int                               `json:"disk_size"`
 	Hostname             string                            `json:"hostname"`
@@ -57,6 +58,7 @@ type CloneVmRequest struct {
 	CPULimitPercent      int                               `json:"cpu_limit_percent"`
 	CPUAffinity          string                            `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode  string                            `json:"first_boot_reboot_mode"`
+	TemplateCategory     string                            `json:"template_category,omitempty"` // 模板二级分类（如 WindowsServer2025/WindowsServer2022 等）
 	MemoryDynamic        *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID             uint                              `json:"switch_id"`
 	SecurityGroupID      uint                              `json:"security_group_id"`
@@ -87,6 +89,7 @@ type BatchCloneRequest struct {
 	TemplateType        string                          `json:"template_type"`
 	CloneMode           string                          `json:"clone_mode"` // 克隆模式: linked / full
 	VCPU                int                             `json:"vcpu" binding:"required"`
+	MaxVCPU             int                             `json:"max_vcpu"` // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	RAM                 int                             `json:"ram" binding:"required"`
 	DiskSize            int                             `json:"disk_size"`
 	Hostname            string                          `json:"hostname"` // 主机名（空则由系统自动生成）
@@ -103,6 +106,7 @@ type BatchCloneRequest struct {
 	UEFI                *bool                           `json:"uefi"`
 	TemplateRootPass    string                          `json:"template_root_pass"`
 	TemplateUser        string                          `json:"template_user"`
+	TemplateCategory    string                          `json:"template_category,omitempty"` // 模板二级分类（如 WindowsServer2025/WindowsServer2022 等）
 	VideoModel          string                          `json:"video_model"`
 	SpiceEnabled        *bool                           `json:"spice_enabled"`   // 是否启用 SPICE 显示协议（不传=回退全局默认）
 	DiskBus             string                          `json:"disk_bus"`        // 系统盘总线类型
@@ -112,11 +116,15 @@ type BatchCloneRequest struct {
 	CPULimitPercent     int                             `json:"cpu_limit_percent"`
 	CPUAffinity         string                          `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode string                          `json:"first_boot_reboot_mode"`
+	MemoryDynamic       *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"` // 内存动态调整
+	SystemDiskIOPS      *service.DiskIOPSTune            `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
 	SwitchID            uint                            `json:"switch_id"`         // VPC 交换机 ID
 	SecurityGroupID     uint                            `json:"security_group_id"` // 安全组 ID
 	ExtraNics           []service.AddVMInterfaceRequest `json:"extra_nics"`
 	ExtraDisks          []service.ExtraDiskParam        `json:"extra_disks"`
 	HostDevices         []service.HostDeviceParam       `json:"host_devices"`              // count > 1 时不允许
+	PreserveFnOSDeviceID bool                           `json:"preserve_fnos_device_id"`
+	FnOSDeviceID         string                         `json:"fnos_device_id"`
 	DisableSystemInit   bool                            `json:"disable_system_init"`       // 禁用系统初始化
 	StaticIP            string                          `json:"static_ip"`                 // OpenWrt 静态 IP（CIDR 格式）
 	Gateway             string                          `json:"gateway"`                   // OpenWrt 网关
@@ -140,6 +148,9 @@ type ReinstallRequest struct {
 
 // CloneVm 链式克隆虚拟机（异步任务）
 func CloneVm(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_vm") {
+		return
+	}
 	if !requireMaintenanceModeDisabled(c, "克隆并启动虚拟机") {
 		return
 	}
@@ -250,6 +261,7 @@ func CloneVm(c *gin.Context) {
 		TemplateType:         req.TemplateType,
 		CloneMode:            req.CloneMode,
 		VCPU:                 req.VCPU,
+		MaxVCPU:              req.MaxVCPU,
 		RAM:                  req.RAM,
 		DiskSize:             diskSize,
 		Hostname:             req.Hostname,
@@ -273,6 +285,7 @@ func CloneVm(c *gin.Context) {
 		CPULimitPercent:      req.CPULimitPercent,
 		CPUAffinity:          req.CPUAffinity,
 		FirstBootRebootMode:  req.FirstBootRebootMode,
+		TemplateCategory:     req.TemplateCategory,
 		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
@@ -358,6 +371,9 @@ func CloneVm(c *gin.Context) {
 
 // BatchCloneVm 批量克隆（异步任务）
 func BatchCloneVm(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_vm") {
+		return
+	}
 	if !requireMaintenanceModeDisabled(c, "批量克隆并启动虚拟机") {
 		return
 	}
@@ -388,9 +404,47 @@ func BatchCloneVm(c *gin.Context) {
 		templateVisibilityResponse(c, err)
 		return
 	}
-	if meta := service.GetTemplateMeta(req.Template); meta != nil && strings.EqualFold(strings.TrimSpace(meta.Type), "other") {
+	meta := service.GetTemplateMeta(req.Template)
+	if meta != nil && strings.EqualFold(strings.TrimSpace(meta.Type), "other") {
 		req.TemplateType = "other"
 		req.DisableSystemInit = true
+	}
+
+	// 与单克隆保持一致：解析模板类型并按类型校验凭据 / OpenWrt 静态 IP / FnOS 设备 ID，
+	// 避免批量克隆绕过单克隆会执行的模板专项校验。
+	templateType := strings.ToLower(strings.TrimSpace(req.TemplateType))
+	if templateType == "" && meta != nil {
+		templateType = strings.ToLower(strings.TrimSpace(meta.Type))
+	}
+	req.User = clonepkg.NormalizeCloneUsernameForTemplate(templateType, req.User)
+	cloudInitMode := ""
+	if meta != nil {
+		cloudInitMode = strings.ToLower(strings.TrimSpace(meta.CloudInitMode))
+	}
+	requireCredentials := cloudInitMode != "none" && !req.DisableSystemInit
+	if templateType == "openwrt" {
+		requireCredentials = false
+	}
+	if err := clonepkg.ValidateCloneCredentialsForTemplate(templateType, req.Hostname, req.User, req.Password, requireCredentials); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+		return
+	}
+	if templateType == "openwrt" && !req.DisableSystemInit {
+		if err := clonepkg.ValidateOpenWrtStaticIP(req.StaticIP); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+	}
+	if strings.TrimSpace(req.FnOSDeviceID) != "" {
+		if err := clonepkg.ValidateFnOSDeviceID(req.FnOSDeviceID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": err.Error()})
+			return
+		}
+		req.PreserveFnOSDeviceID = true
+	}
+	if len(req.HostDevices) > 0 && !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可配置硬件直通设备"})
+		return
 	}
 
 	diskSize, err := service.ResolveCloneDiskSizeGB(req.Template, req.DiskSize)
@@ -425,6 +479,7 @@ func BatchCloneVm(c *gin.Context) {
 		TemplateType:        req.TemplateType,
 		CloneMode:           req.CloneMode,
 		VCPU:                req.VCPU,
+		MaxVCPU:             req.MaxVCPU,
 		RAM:                 req.RAM,
 		DiskSize:            diskSize,
 		Hostname:            req.Hostname,
@@ -441,6 +496,7 @@ func BatchCloneVm(c *gin.Context) {
 		UEFI:                req.UEFI,
 		TemplateRootPass:    req.TemplateRootPass,
 		TemplateUser:        req.TemplateUser,
+		TemplateCategory:    req.TemplateCategory,
 		VideoModel:          req.VideoModel,
 		SpiceEnabled:        req.SpiceEnabled,
 		DiskBus:             req.DiskBus,
@@ -450,12 +506,16 @@ func BatchCloneVm(c *gin.Context) {
 		CPULimitPercent:     req.CPULimitPercent,
 		CPUAffinity:         req.CPUAffinity,
 		FirstBootRebootMode: req.FirstBootRebootMode,
+		MemoryDynamic:       req.MemoryDynamic,
+		SystemDiskIOPS:      req.SystemDiskIOPS,
 		SwitchID:            req.SwitchID,
 		SecurityGroupID:     req.SecurityGroupID,
 		ExtraNics:           req.ExtraNics,
 		ExtraDisks:          req.ExtraDisks,
-		HostDevices:         req.HostDevices,
-		IsAdmin:             isAdmin,
+HostDevices:         req.HostDevices,
+				PreserveFnOSDeviceID: req.PreserveFnOSDeviceID,
+				FnOSDeviceID:         req.FnOSDeviceID,
+				IsAdmin:             isAdmin,
 		DisableSystemInit:   req.DisableSystemInit,
 		StaticIP:            req.StaticIP,
 		Gateway:             req.Gateway,

@@ -442,6 +442,7 @@ type SelfCreateVmRequest struct {
 	Name            string                            `json:"name" binding:"required"`
 	Remark          string                            `json:"remark"`
 	VCPU            int                               `json:"vcpu" binding:"required"`
+	MaxVCPU         int                               `json:"max_vcpu"` // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	RAM             int                               `json:"ram" binding:"required"`
 	DiskSize        int                               `json:"disk_size" binding:"required"`
 	DiskFormat      string                            `json:"disk_format"`
@@ -562,6 +563,7 @@ func SelfCreateVm(c *gin.Context) {
 		Name:            req.Name,
 		Remark:          req.Remark,
 		VCPU:            req.VCPU,
+		MaxVCPU:         req.MaxVCPU,
 		RAM:             req.RAM,
 		DiskSize:        req.DiskSize,
 		DiskFormat:      req.DiskFormat,

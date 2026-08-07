@@ -188,6 +188,7 @@ type SelfCloneVmRequest struct {
 	TemplateType         string                            `json:"template_type"`
 	CloneMode            string                            `json:"clone_mode"`
 	VCPU                 int                               `json:"vcpu" binding:"required"`
+	MaxVCPU              int                               `json:"max_vcpu"` // CPU 热添加上限，0 或 <= vcpu 表示不启用
 	RAM                  int                               `json:"ram" binding:"required"`
 	DiskSize             int                               `json:"disk_size"`
 	Hostname             string                            `json:"hostname"`
@@ -225,6 +226,9 @@ type SelfCloneVmRequest struct {
 
 // SelfCloneVm 用户自助从模板克隆VM
 func SelfCloneVm(c *gin.Context) {
+	if !requireHighRiskVerification(c, "create_vm") {
+		return
+	}
 	if !requireMaintenanceModeDisabled(c, "克隆并启动虚拟机") {
 		return
 	}
@@ -335,6 +339,7 @@ func SelfCloneVm(c *gin.Context) {
 		TemplateType:         templateType,
 		CloneMode:            req.CloneMode,
 		VCPU:                 req.VCPU,
+		MaxVCPU:              req.MaxVCPU,
 		RAM:                  req.RAM,
 		DiskSize:             diskSize,
 		Hostname:             req.Hostname,

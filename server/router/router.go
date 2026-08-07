@@ -260,24 +260,24 @@ func Setup() *gin.Engine {
 			tpl.Use(middleware.ElasticCloudOnlyMiddleware())
 			{
 				tpl.GET("/list", handler.GetTemplateList)
-				tpl.POST("/prepare", handler.PrepareTemplate)
+				tpl.POST("/prepare", middleware.AdminMiddleware(), handler.PrepareTemplate)
 				tpl.GET("/:name/prepare-linux/check", middleware.AdminMiddleware(), handler.GetLinuxTemplatePrepareCheck) // 检查 Linux 模板预处理链式依赖
 				tpl.POST("/:name/prepare-linux", middleware.AdminMiddleware(), handler.PrepareImportedLinuxTemplate)
-				tpl.POST("/upload/init", handler.TemplateUploadInit)         // 模板包分片上传-初始化/秒传
-				tpl.POST("/upload/chunk", handler.TemplateUploadChunk)       // 模板包分片上传-单片
-				tpl.POST("/upload/complete", handler.TemplateUploadComplete) // 模板包分片上传-完成
-				tpl.DELETE("/upload", handler.TemplateUploadCancel)          // 清理已上传的模板临时包
-				tpl.POST("/import", handler.ImportTemplateHandler)
-				tpl.POST("/import/preview", handler.PreviewImportTemplateHandler)
-				tpl.POST("/import/confirm", handler.ConfirmImportTemplateHandler)
-				tpl.GET("/download/:filename", handler.DownloadTemplateExportHandler)
-				tpl.GET("/:name/delete-preview", handler.GetDeleteTemplatePreview)
-				tpl.GET("/:name/vms", handler.GetTemplateVMs)
-				tpl.POST("/:name/export", handler.ExportTemplateHandler)
-				tpl.DELETE("/:name/export", handler.DeleteExportedTemplateHandler)
-				tpl.PUT("/:name/publish", handler.UpdateTemplatePublish)
-				tpl.PUT("/:name/meta", handler.UpdateTemplateMeta)
-				tpl.DELETE("/:name", handler.DeleteTemplate)
+				tpl.POST("/upload/init", middleware.AdminMiddleware(), handler.TemplateUploadInit)         // 模板包分片上传-初始化/秒传
+				tpl.POST("/upload/chunk", middleware.AdminMiddleware(), handler.TemplateUploadChunk)       // 模板包分片上传-单片
+				tpl.POST("/upload/complete", middleware.AdminMiddleware(), handler.TemplateUploadComplete) // 模板包分片上传-完成
+				tpl.DELETE("/upload", middleware.AdminMiddleware(), handler.TemplateUploadCancel)          // 清理已上传的模板临时包
+				tpl.POST("/import", middleware.AdminMiddleware(), handler.ImportTemplateHandler)
+				tpl.POST("/import/preview", middleware.AdminMiddleware(), handler.PreviewImportTemplateHandler)
+				tpl.POST("/import/confirm", middleware.AdminMiddleware(), handler.ConfirmImportTemplateHandler)
+				tpl.GET("/download/:filename", middleware.AdminMiddleware(), handler.DownloadTemplateExportHandler)
+				tpl.GET("/:name/delete-preview", middleware.AdminMiddleware(), handler.GetDeleteTemplatePreview)
+				tpl.GET("/:name/vms", middleware.AdminMiddleware(), handler.GetTemplateVMs)
+				tpl.POST("/:name/export", middleware.AdminMiddleware(), handler.ExportTemplateHandler)
+				tpl.DELETE("/:name/export", middleware.AdminMiddleware(), handler.DeleteExportedTemplateHandler)
+				tpl.PUT("/:name/publish", middleware.AdminMiddleware(), handler.UpdateTemplatePublish)
+				tpl.PUT("/:name/meta", middleware.AdminMiddleware(), handler.UpdateTemplateMeta)
+				tpl.DELETE("/:name", middleware.AdminMiddleware(), handler.DeleteTemplate)
 			}
 
 			// ==================== 网络管理 ====================
