@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-05T06:32:11.653Z",
-  "count": 318,
+  "generated_at": "2026-08-07T08:16:15.053Z",
+  "count": 322,
   "endpoints": [
     {
       "method": "POST",
@@ -1675,6 +1675,28 @@
       "comment": ""
     },
     {
+      "method": "GET",
+      "path": "/settings/diagnostics/os-support",
+      "handler": "GetOsSupport",
+      "auth": "jwt-only",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "各发行版支持等级 S/A/B/C 与认证硬件矩阵（M8.11/§14 P3-11）"
+    },
+    {
+      "method": "POST",
+      "path": "/settings/diagnostics/refresh",
+      "handler": "RefreshDiagnostics",
+      "auth": "jwt-only",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "重新探测组件版本健康度并返回最新结果（M7.2 / §5.11.5）"
+    },
+    {
       "method": "POST",
       "path": "/settings/jwt-secret/rotate",
       "handler": "RotateJWTSecret",
@@ -1888,6 +1910,17 @@
       "path": "/system-info",
       "handler": "GetPublicSystemInfo",
       "auth": "jwt",
+      "admin": false,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": ""
+    },
+    {
+      "method": "GET",
+      "path": "/system/health/latest",
+      "handler": "GetHealthProbeLatest",
+      "auth": "public",
       "admin": false,
       "elasticOnly": false,
       "vmAccess": false,
@@ -2333,6 +2366,17 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
+    },
+    {
+      "method": "GET",
+      "path": "/vm-watchdog/events",
+      "handler": "GetVMWatchdogEventList",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "看门狗自动重置等事件列表（M8.9/§14 P2-9）"
     },
     {
       "method": "DELETE",

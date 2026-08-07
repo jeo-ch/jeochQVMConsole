@@ -759,34 +759,42 @@ check_locale() {
         current=$(locale 2>/dev/null | awk -F= '/^LANG=/ {print $2}' | tr -d '"' || true)
     fi
 
-    # Linux locale 名大小写不敏感（zh_CN.UTF-8 与 zh_CN.utf8 等价），统一下转小写后按编码判定
-    local current_lc current_lang
-    current_lc="$(printf '%s' "${current:-}" | tr '[:upper:]' '[:lower:]')"
-    current_lang="${current_lc%%[_@.-]*}"
-
-    # 日语/韩语不支持（命令输出解析不可靠，且本次不纳入适配范围）——优先于编码放行判定
-    if [[ "$current_lang" =~ ^(ja|ko)$ ]]; then
-        warn "不支持日语（ja_*）/韩语（ko_*）语言环境（当前: ${current:-未知}）。"
-        warn "请切换到英文 en_US.UTF-8 或中文 zh_CN.UTF-8，否则安装可能异常。"
-        warn "安装将继续，面板将以 LANG=C.UTF-8 运行以规避本地化解析问题，但建议安装前修正系统语言。"
-        return 0
-    fi
-
-    # 放行区间：
-    #   ① 英文优先：en / C / POSIX 裸值或配 UTF-8 编码后缀
-    #   ② 中文（含 zh_CN/zh_SG/zh_TW/zh_HK）等 UTF-8 locale
-    #   ③ 任意 .utf8 / .utf-8 结尾的 locale
-    # 以下不匹配 GBK / GB2312 / GB18030 / latin1 等非 UTF-8 编码（中文乱码会导致命令输出解析异常），
-    # 国产系统（麒麟/openEuler/UOS 等）默认 zh_CN.UTF-8，直接放行，仅提示；
-    # 面板服务由 setup_service 强制 LANG=C.UTF-8 启动，避免命令输出被本地化导致解析失败
-    if [[ "$current_lc" =~ ^(c|posix)(\.utf-?8)?$ ]] || [[ "$current_lc" =~ ^en(_[a-z0-9]+)?(\.utf-?8)?$ ]] || [[ "$current_lc" =~ \.utf-?8$ ]]; then
+    # 与官方一致，优先判定英文 UTF-8 环境（en_US.UTF-8 / C.UTF-8 / POSIX.UTF-8）。
+    # 仅放行「英文」环境的严格区间：不匹配 GBK/GB2312/GB18030/latin1 等非 UTF-8 编码。
+    # 官方在此硬退出强制英文；本发行版为国产化场景放宽——提示用户设置英文，
+    # 但 3 秒无输入默认沿用当前语言继续安装（面板仍由 setup_service 强制 LANG=C.UTF-8 启动）。
+    if [[ "$current" =~ ^en_US\.UTF-8 ]] || [[ "$current" =~ ^C\.UTF-8 ]] || [[ "$current" =~ ^POSIX\.UTF-8 ]]; then
         info "系统语言环境: ${current:-未知}（建议优先使用英文 en_US.UTF-8）"
         return 0
     fi
 
-    warn "系统语言环境为 ${current:-未知}（非英文/中文 UTF-8）。"
-    warn "强烈建议使用英文 en_US.UTF-8：QVMConsole 依赖命令返回的信息进行正确识别，英文环境最稳定。"
-    warn "安装将继续，面板将以 LANG=C.UTF-8 运行，确保命令输出可正确解析。"
+    cat >&2 <<EOF
+
+[WARN] 系统语言环境不是英文 UTF-8。
+
+当前检测到: LANG=${lang:-（空）}${lc_all:+ , LC_ALL=${lc_all}}
+
+QVMConsole 大部分功能依赖命令返回的信息进行正确识别，
+非英文环境下可能导致错误匹配逻辑失效，造成功能异常。
+
+建议将系统语言环境设置为英文 en_US.UTF-8 后重启系统再执行安装，例如：
+
+    sudo localectl set-locale LANG=en_US.UTF-8
+    # 或
+    export LANG=en_US.UTF-8
+EOF
+    if [ "${CI:-}" = "1" ] || [ ! -t 0 ]; then
+        warn "当前语言环境非英文 UTF-8（${current:-未知}），为保证命令输出解析稳定，面板将以 LANG=C.UTF-8 运行。"
+        return 0
+    fi
+
+    # 交互式：提示设置英文，3 秒无输入默认沿用当前语言继续安装（read_tty 无输入时变量保持空值）
+    read_tty -rp "是否仍以当前语言继续安装? [y/N]: " use_current_lang
+    if [[ "${use_current_lang:-N}" =~ ^[Nn]$ ]]; then
+        info "已取消安装。请按上述说明将系统语言设为英文 en_US.UTF-8 后重新运行安装脚本。"
+        exit 0
+    fi
+    warn "继续安装，面板将以 LANG=C.UTF-8 运行以规避本地化解析问题，建议安装前修正系统语言。"
     return 0
 }
 
@@ -3361,7 +3369,7 @@ extract_tarball() {
     fi
 
     # §14.5 候选④：minisign 离线签名验证（供应链防篡改）
-    # 签名文件来自下载分支（.minisig 拉取）或本地安装（包旁同名文件）；公钥来自内嵌/INSTALL_DIR/发行包同目录
+    # 签名文件来自下载分支（.minisig 拉取）或本地安装（包旁同名文件）；公钥仅取内嵌 MINISIGN_PUBLIC_KEY（单一来源）
     verify_minisign_signature "$tarball_path"
 
     info "正在解压发行包: $tarball_path"
@@ -4238,7 +4246,7 @@ setup_bash_audit() {
     local audit_log="/var/log/bash.log"
     local marker="# BEGIN kvm_console bash audit"
     local marker_end="# END kvm_console bash audit"
-    local probe='PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;} history -a; echo \"\$(date +%F_%T) \$(whoami) \$(history 1 2>/dev/null | sed -n '\''1p'\'') rc=$?\" >> '"$audit_log"
+    local probe='PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;} history -a; echo \"\$(date +%F_%T) \$(whoami) \$(history 1 2>/dev/null | sed -n '\''1p'\'') rc=\$?\" >> '"$audit_log"'"'
 
     touch "$audit_log" 2>/dev/null || { warn "无法创建审计日志 ${audit_log}"; return 0; }
 

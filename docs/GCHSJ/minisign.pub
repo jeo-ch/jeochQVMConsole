@@ -1,8 +1,0 @@
-untrusted comment: minisign public key F605F4243FA08760
-RWRgh6A/JPQF9pcbwfp+pBgy4JHpuZTa2etSqEuKLO5wuxXutDGl9bQs
-
-# QVMConsole 发行签名公钥（minisign，Ed25519）
-# 对应私钥由发行方离线保管（本仓库不入库）。该公钥同时应写入 install.sh 的
-# MINISIGN_PUBLIC_KEY 变量随安装脚本内嵌分发，便于安装期 minisign -V -m 验签。
-# 公钥一经发布不可更换；更换需按 docs/minisign-publishing.md 公告轮换。
-# 验证示例：minisign -V -m <tarball> -p minisign.pub -x <tarball>.minisig

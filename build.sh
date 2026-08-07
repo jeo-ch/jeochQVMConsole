@@ -49,8 +49,7 @@ SKIP_FRONTEND=false
 SKIP_BACKEND=false
 BUILD_VARIANT=""  # 构建变体：空=全部, compat=zig兼容版, native=宿主机原生版
 MINISIGN_KEY="${MINISIGN_KEY:-}"  # minisign 私钥文件路径（M8.7/§14.5 候选④）：指定时对发行包签名产出 .minisig；空则跳过仅 SHA256
-# 公钥不在构建侧探测/分发（与官方一致，单一来源）：随 install.sh 内嵌为 MINISIGN_PUBLIC_KEY，
-# 避免 docs/GCHSJ/minisign.pub 等探测文件与内嵌公钥漂移。
+# 公钥不在构建侧探测/分发（与官方一致，单一来源）：随 install.sh 内嵌为 MINISIGN_PUBLIC_KEY，不再维护独立公钥文件。
 COMPAT_GLIBC_VERSION="${COMPAT_GLIBC_VERSION:-}"  # 兼容版 GLIBC 上限：未指定时按架构使用默认值
 HIGH_COMPAT_GLIBC_VERSION=""  # 高兼容档 GLIBC 上限（如 2.28）：指定时额外构建 kvm-console-compat-{VER}（§4.3/M4）
 
