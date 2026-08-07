@@ -100,7 +100,13 @@
 > 4. **放行区间校正**：统一转小写后判定（zh_CN.utf8 与 zh_CN.UTF-8 等价，消除大小写误报）；放行区间①英文/en/C/POSIX 配 UTF-8、②中文（zh_CN/zh_SG/zh_TW/zh_HK 等）UTF-8、③任意 `.utf8/.utf-8` 结尾；GBK/GB2312/GB18030/latin1/EUC-JP 等非 UTF-8 编码仍拦截提示。
 > 5. **实现**：仅改动 `install.sh::check_locale`（install.sh:752-791），无后端/前端改动。改动经 `bash -n` 语法检查通过 + 22 组语言场景实测（日/韩 → 明确不支持，英/中/其他 UTF-8 → 放行并推荐英文，非 UTF-8 → 拦截）。
 >
-> **v0.18 修订要点（官方 GitHub 仓库核对比对 + 测试机孤儿 VM 清理，代码零回归确认）**：
+> **v0.18.1 修订要点（测试机「模版创建虚拟机」链路实测 + immutable 模板 SELinux 启动失败修复）**：
+> 1. **实测确认「模版创建虚拟机」主链路可用**：通过面板 API（`POST /api/auth/login` → `POST /api/vm/clone`）从模板 `CentOS-Stream-GenericCloud-9-1` 克隆 `tpltest1`（ram 以 **GB** 计，`ram:4`=4GB），任务队列 worker 正常，产生 `is_linked_clone=true` 的链式克隆。**结论：模版创建虚拟机核心链路无代码缺陷**；此前 v0.18 清理的孤儿 `vmdnqtvq2e` 仍是运行态残留所致，非模版链路回归。
+> 2. **发现并修复真实缺陷（SELinux Enforcing + immutable 模板 → 链式克隆启动失败）**：链式克隆启动时 libvirt **每次都会**对共享 backing 模板无条件执行 `setfilecon` 打标到 `virt_content_t`，而模板导入流程会对模板 qcow2 设置 `chattr +i` immutable。immutable 文件连 root 也无法修改 xattr，SELinux Enforcing 下报 `无法在 'system_u:object_r:virt_content_t:s0' 中设定安全上下文 …：Operation not permitted`。实测证明：**仅仅 chcon 预打标 `virt_content_t` 仍会失败**（libvirt 每次启动都重新 setfilecon，immutable 依旧拦截）。
+> 3. **修复**：`server/service/vm/lifecycle.go::startVM` 将启动动作包入新增 `withVMDiskImagesUnlocked(name, fn)`：仅当 SELinux Enforcing 且磁盘镜像（含 backing 模板）为 immutable 时，临时 `RemoveFileImmutable`（chattr -i）→ 执行 libvirt/virsh start → `defer` 恢复 `SetFileImmutable`（chattr +i），保护语义不变。挂接点 `StartVM`/`StartVMPreserveRebootAction` 同时覆盖克隆启动（clone/linked_clone.go、windows_init.go、xml.go 均走 `D.StartVM`）。`go build ./...` 通过。
+> 4. **结论**：v0.18 结论「模版创建报错为运行态残留 + 代码零新增」在此补正——孤儿清理之外，本次实测定位到并修复了真实的 immutable/SELinux 启动缺陷（v0.18.1）。
+>
+> **v0.18 修订要点（HEAD 官方 GitHub 仓库核对比对 + 测试机孤儿 VM 清理，代码零回归确认）**：
 >
 > 1. **与官方仓库核对**：克隆 `https://github.com/QVMConsole/QVMConsole.git`（HEAD `c32c865`）全仓比对。结论：**当前仓库 `jeochQVMConsole` 是官方仓库的严格超集**——官方 HEAD 为本地 HEAD（`a4d3461`）的祖先，本地领先 8 提交、落后 0 提交，官方无任何本地缺失内容。重点核对用户关注的五块（虚拟机创建 / 模版导入 / 模版创建虚拟机 / 存储池 / 系统设置存储与网络）：`template/*`、`vmimport/*`（除 OVMF 路径）、`storage/pool/*`（除 lsblk 兼容）、`storage/disk/*`、`network` 核心、前端 `StorageNetworkTab` 均与官方完全一致。本地与官方的全部差异均为**国产化/增强**（SELinux 打标、OVMF 路径动态解析、osinfo-query 兼容、lsblk 兼容、防火墙可插拔后端、看门狗/健康探针/诊断、元数据中英文识别、`--smoke-selfcheck`），无功能回退。
 > 2. **此前排查的「镜像回归」澄清**：上一轮对比的是参考副本 `jeoQVMConsole`（HEAD `782c015`，比官方更新），之见到的 `template/linux_deps.go` 国内镜像差异与 `PassthroughSection` 删减，是**参考副本相对 GitHub 官方的演进**，不是本地相对官方的回归——本地与 GitHub 官方在模板链路完全一致。

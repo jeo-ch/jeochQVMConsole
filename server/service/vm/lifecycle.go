@@ -45,6 +45,47 @@ func ensureVMSELinuxImageLabels(name string) {
 	}
 }
 
+// withVMDiskImagesUnlocked 临时解除虚拟机所有磁盘镜像文件（含 backing 模板）的
+// immutable 属性，执行 fn，再恢复 immutable。
+// libvirt 每次启动都会对共享 backing 镜像无条件执行 setfilecon 打标（virt_content_t），
+// 而模板导入流程会把模板文件置为 immutable（chattr +i），immutable 文件连 root
+// 也无法修改 xattr，SELinux Enforcing 下报 "Operation not permitted"。
+// 本函数在启动期间临时解锁，保证 libvirt 可正常打标，启动结束后恢复保护。
+// 非 Enforcing 或无可执行权限时静默跳过，不影响主流程。
+func withVMDiskImagesUnlocked(name string, fn func() error) error {
+	if !utils.SelinuxEnforcing() {
+		return fn()
+	}
+	vmXML, err := libvirt_rpc.GetDomainXMLRPC(name, 0)
+	if err != nil {
+		xmlRes := utils.ExecCommand("virsh", "dumpxml", name)
+		if xmlRes.Error != nil {
+			return fn()
+		}
+		vmXML = xmlRes.Stdout
+	}
+	var unlocked []string
+	seen := map[string]bool{}
+	for _, m := range diskSourceFileRe.FindAllStringSubmatch(vmXML, -1) {
+		p := strings.TrimSpace(m[1])
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		if utils.IsFileImmutable(p) {
+			if utils.RemoveFileImmutable(p) == nil {
+				unlocked = append(unlocked, p)
+			}
+		}
+	}
+	defer func() {
+		for _, p := range unlocked {
+			_ = utils.SetFileImmutable(p)
+		}
+	}()
+	return fn()
+}
+
 // ==================== 虚拟机生命周期操作 ====================
 
 // StartVM 启动虚拟机
@@ -196,34 +237,45 @@ func startVM(name string, fixOnReboot bool) error {
 		statusAfterStart = "paused"
 	}
 
-	started := false
-	if libvirt_rpc.IsLibvirtRPCAvailable() {
-		var startErr error
-		if freeze {
-			startErr = libvirt_rpc.StartDomainPausedRPC(name)
-		} else {
-			startErr = libvirt_rpc.StartDomainRPC(name)
-		}
-		if startErr == nil {
-			started = true
-		} else {
-			logger.Libvirt.Warn("启动虚拟机失败，降级为 virsh", "domain", name, "error", startErr)
-		}
-	}
-	if !started {
-		result := utils.ExecCommand("virsh", startArgs...)
-		if result.Error != nil {
-			// 检查是否是权限问题，自动修复后重试一次
-			if strings.Contains(result.Stderr, "Permission denied") {
-				D.FixSnapshotDiskPermissions(name)
-				retryResult := utils.ExecCommand("virsh", startArgs...)
-				if retryResult.Error != nil {
-					return fmt.Errorf("启动虚拟机失败: %s", retryResult.Stderr)
-				}
+	// 链接克隆的 backing 模板在导入时被置为 immutable（chattr +i）。libvirt 每次
+	// 启动都会对共享 backing 镜像无条件执行 setfilecon 打标（virt_content_t），
+	// immutable 文件连 root 也无法改 xattr，SELinux Enforcing 下报
+	// "Operation not permitted" 导致启动失败。此处临时解除磁盘镜像的 immutable，
+	// 启动成功后再恢复，保护语义不变。
+	startErr := withVMDiskImagesUnlocked(name, func() error {
+		started := false
+		if libvirt_rpc.IsLibvirtRPCAvailable() {
+			var startErr error
+			if freeze {
+				startErr = libvirt_rpc.StartDomainPausedRPC(name)
 			} else {
-				return fmt.Errorf("启动虚拟机失败: %s", result.Stderr)
+				startErr = libvirt_rpc.StartDomainRPC(name)
+			}
+			if startErr == nil {
+				started = true
+			} else {
+				logger.Libvirt.Warn("启动虚拟机失败，降级为 virsh", "domain", name, "error", startErr)
 			}
 		}
+		if !started {
+			result := utils.ExecCommand("virsh", startArgs...)
+			if result.Error != nil {
+				// 检查是否是权限问题，自动修复后重试一次
+				if strings.Contains(result.Stderr, "Permission denied") {
+					D.FixSnapshotDiskPermissions(name)
+					retryResult := utils.ExecCommand("virsh", startArgs...)
+					if retryResult.Error != nil {
+						return fmt.Errorf("启动虚拟机失败: %s", retryResult.Stderr)
+					}
+				} else {
+					return fmt.Errorf("启动虚拟机失败: %s", result.Stderr)
+				}
+			}
+		}
+		return nil
+	})
+	if startErr != nil {
+		return startErr
 	}
 	UpdateVMRuntimeState(name, statusAfterStart, time.Now())
 	if err := applyVMRuntimeNetworkState(name); err != nil {
