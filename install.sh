@@ -1291,6 +1291,36 @@ check_optional_kvm_stat() {
     info "未检测到可用的 kvm_stat，跳过 kvm_page_fault 辅助指标；热迁移仍会使用 libvirt dirty-rate 判断"
 }
 
+# install_optional_virt_fw_vars 安装 UEFI 变量编辑工具。
+# 该工具用于让 shim/fallback.efi 首次登记启动项后直接继续引导；缺失时不影响虚拟机创建。
+install_optional_virt_fw_vars() {
+    if command -v virt-fw-vars >/dev/null 2>&1 &&
+       virt-fw-vars --help 2>&1 | grep -q -- '--set-fallback-no-reboot'; then
+        success "virt-fw-vars 已可用"
+        return
+    fi
+
+    info "尝试安装可选 UEFI 变量工具 virt-fw-vars..."
+    case "$PKG_MGR" in
+        apt)
+            if pkg_is_available python3-virt-firmware 2>/dev/null; then
+                pkg_install python3-virt-firmware >/dev/null 2>&1 || true
+            fi
+            ;;
+        dnf|yum)
+            pkg_install python3-virt-firmware >/dev/null 2>&1 ||
+                pkg_install virt-firmware >/dev/null 2>&1 || true
+            ;;
+    esac
+
+    if command -v virt-fw-vars >/dev/null 2>&1 &&
+       virt-fw-vars --help 2>&1 | grep -q -- '--set-fallback-no-reboot'; then
+        success "virt-fw-vars 安装成功"
+    else
+        warn "virt-fw-vars 不可用或版本过旧，UEFI 克隆首次启动时可能短暂显示启动项恢复界面"
+    fi
+}
+
 check_and_install_deps() {
     info "检查宿主机依赖包..."
     # P3-12：依赖安装前先测速选择镜像源（offline 时仅扫描）
@@ -1416,13 +1446,13 @@ check_and_install_deps() {
 
     install_optional_polkit
     check_optional_kvm_stat
-
-    # 安装捆绑的 RPM 包（为 Kylin/openEuler 等源中缺失的包提供，含 RPM 软性可选命令的原生源补齐）
+# 安装捆绑的 RPM 包（为 Kylin/openEuler 等源中缺失的包提供，含 RPM 软性可选命令的原生源补齐）
     install_bundled_packages
 
     # 依赖/可选命令确认顺序：必须放在 install_bundled_packages 之后。
     # 否则 RPM 系软性命令（virt-*、growpart 等，provisioned by dnf native source）
     # 尚未补齐就被 ensure_required_commands 误判为缺失而打印 [WARN]。
+    install_optional_virt_fw_vars
     ensure_required_commands
     ensure_core_services
 }

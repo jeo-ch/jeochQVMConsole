@@ -7,6 +7,7 @@
 | dmidecode | `dmidecode -t memory` | 读取宿主机内存条（DIMM）SMBIOS 信息，供概览页内存卡片「硬件详情」展开区展示 | `server/service/host/hardware.go` |
 | qemu-utils（既有依赖） | `qemu-img info/convert` | 检查导入磁盘格式、将 OVF/OVA 包内磁盘转换为 QCOW2、将 OVA 导出磁盘转换为 streamOptimized VMDK | `server/service/vm/vmimport/`、`server/service/vm/export.go` |
 | swtpm（既有依赖） | `swtpm` | libvirt 软件 TPM 后端，UEFI 安全启动模版（含 `<tpm>`）启动必需；openEuler/麒麟 SELinux Enforcing 下需 `restorecon /usr/bin/swtpm` 打标 | `install.sh` 依赖安装 + SELinux 配置步骤 |
+| python3-virt-firmware（可选） | `virt-fw-vars` | 在 UEFI 克隆的 NVRAM 中预置 shim 连续引导标记，避免首次确认发行版启动项时显示「UEFI恢复倒计时」并冷复位 | `server/service/vm_xml/boot_type.go`、`server/service/clone/` |
 
 ## Linux 来宾磁盘自动化依赖
 
@@ -29,4 +30,5 @@ Windows 来宾使用系统自带 PowerShell 存储命令，无额外来宾软件
 
 - `dmidecode` 已加入 `install.sh` 的 `APT_DEPS`（RPM 系映射同名包）。
 - OVF/OVA 功能复用安装脚本已有的 `qemu-utils` 与 Go 标准库归档能力，没有增加新的系统包。
+- `install.sh` 会按发行版尽力安装 `virt-fw-vars`；部分 RPM 系软件源缺少该工具时仅给出警告，不阻断安装和克隆。后端同样采用兼容降级，工具缺失或版本过旧时保留 shim 原有的一次性恢复流程。
 - 部分 ARM 设备与虚拟机的 SMBIOS 不提供内存设备数据，此时后端返回中文说明，前端正常降级展示，不影响其他功能。

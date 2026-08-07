@@ -538,12 +538,19 @@ export function resetVmLinuxPassword(
 
 // ==================== 网口 IP 状态 ====================
 
+/** 网口 IP 地址 */
+export interface VmNetworkIPAddress {
+  address: string
+  source?: string
+}
+
 /** 网口运行状态 */
 export interface VmNetworkInterface {
   target: string
   mac: string
   ip: string
   ip_source?: string
+  ip_addresses?: VmNetworkIPAddress[]
   bridge?: string
   source_bridge?: string
   virtualport_type?: string
@@ -1058,6 +1065,7 @@ export interface BatchCloneVmPayload {
   security_group_id?: number | null
   extra_nics?: ExtraNicPayload[]
   extra_disks?: ExtraDiskPayload[]
+  pcie_root_ports?: number
   static_ip?: string
   gateway?: string
   dns?: string

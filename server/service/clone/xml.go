@@ -80,7 +80,18 @@ func ensureDomainNVRAMPath(domainXML, nvramPath string) string {
 	return domainXML
 }
 
-// defineAndStartNonWindowsClone 为 Linux/FnOS/Other 类型生成 XML、注入配置、定义并启动虚拟机
+func setCloneShimFallbackNoReboot(vmName, domainXML string) {
+	nvramPath := extractDomainNVRAMPath(domainXML)
+	if nvramPath == "" {
+		return
+	}
+	if err := vm_xml.SetShimFallbackNoReboot(nvramPath); err != nil {
+		logger.App.Warn("设置 UEFI 克隆首次启动连续引导失败，首次启动时可能短暂显示启动项恢复界面",
+			"vm", vmName, "nvram", nvramPath, "error", err)
+	}
+}
+
+// defineAndStartNonWindowsClone 为 Linux/FnOS/OpenWrt/Other 类型生成 XML、注入配置、定义并启动虚拟机
 // extraDiskDir: 额外磁盘的存储目录
 func defineAndStartNonWindowsClone(params *CloneParams, cloneDisk string, ramMB int, memoryMeta *memory.VMMemoryMetadata, tplType string, cloneBootType string, needUEFI bool, templateNVRAMPath string, extraDiskDir string) error {
 	isOther := tplType == "other"
@@ -120,10 +131,8 @@ func defineAndStartNonWindowsClone(params *CloneParams, cloneDisk string, ramMB 
 
 	vmXML := InjectMemballoonConfig(result.Stdout, !isOther)
 
-	pciePortCount := params.PCIERootPorts
-	if pciePortCount <= 0 {
-		pciePortCount = 6
-	}
+	additionalPCIEDevices := len(params.ExtraNics) + len(params.ExtraDisks) + len(params.HostDevices)
+	pciePortCount := vm_xml.ResolveCreatePCIERootPortCount(vmXML, params.PCIERootPorts, additionalPCIEDevices)
 	vmXML = D.InjectPCIERootPorts(vmXML, pciePortCount)
 
 	var err error
@@ -182,6 +191,9 @@ func defineAndStartNonWindowsClone(params *CloneParams, cloneDisk string, ramMB 
 	}
 	if err := vm_xml.EnsureVMUEFINVRAMFile(params.Name, vmXML, cloneBootType); err != nil {
 		return err
+	}
+	if needUEFI {
+		setCloneShimFallbackNoReboot(params.Name, vmXML)
 	}
 
 	// SPICE graphics（默认本地监听），与 VNC 共存；是否启用由 per-VM 开关决定，回退全局默认

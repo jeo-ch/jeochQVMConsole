@@ -269,11 +269,9 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	enableFPR := templateType != "windows" && templateType != "other"
 	vmXML := InjectMemballoonConfig(xmlOutput, enableFPR)
 
-	// 注入 pcie-root-port 控制器（q35 机型热插拔预留，默认 6 个）
-	pciePortCount := params.PCIERootPorts
-	if pciePortCount <= 0 {
-		pciePortCount = 6
-	}
+	// 为创建时稍后追加的设备预留端口，避免虚拟机启动后额外网口无槽位可用。
+	additionalPCIEDevices := len(params.ExtraNics) + len(params.ExtraDisks) + len(params.HostDevices)
+	pciePortCount := vm_xml.ResolveCreatePCIERootPortCount(vmXML, params.PCIERootPorts, additionalPCIEDevices)
 	vmXML = D.InjectPCIERootPorts(vmXML, pciePortCount)
 
 	if memoryMeta != nil {
@@ -349,6 +347,9 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	if err := vm_xml.EnsureVMUEFINVRAMFile(params.Name, vmXML, normalizedBootType); err != nil {
 		cleanupLinkedCloneArtifacts("", cloneDisk)
 		return nil, err
+	}
+	if (normalizedBootType == vm_xml.VMBootTypeUEFI || normalizedBootType == vm_xml.VMBootTypeUEFISecure) && templateType != "windows" {
+		setCloneShimFallbackNoReboot(params.Name, vmXML)
 	}
 	vmXML, err = applyCloneHostDevicesToDomainXML(vmXML, params.HostDevices, params.IsAdmin)
 	if err != nil {

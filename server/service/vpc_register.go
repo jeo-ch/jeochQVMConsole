@@ -106,6 +106,9 @@ func SwitchVMSecurityGroup(operator, role, vmName string, securityGroupID uint) 
 func ApplyVPCSwitchToDomainXML(vmXML string, switchID uint) (string, error) {
 	return vpcpkg.ApplyVPCSwitchToDomainXML(vmXML, switchID)
 }
+func ApplyVPCBindingToDomainXML(vmName, vmXML string) (string, bool, error) {
+	return vpcpkg.ApplyVPCBindingToDomainXML(vmName, vmXML)
+}
 
 // Interface management
 func AddVMInterface(vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo, error) {
@@ -117,8 +120,8 @@ func RemoveVMInterface(vmName string, interfaceOrder int) error {
 func UpdateVMInterface(vmName string, interfaceOrder int, req AddVMInterfaceRequest) error {
 	return vpcpkg.UpdateVMInterface(vmName, interfaceOrder, req)
 }
-func AttachExtraNICs(vmName string, extraNics []AddVMInterfaceRequest) {
-	vpcpkg.AttachExtraNICs(vmName, extraNics)
+func AttachExtraNICs(vmName string, extraNics []AddVMInterfaceRequest) error {
+	return vpcpkg.AttachExtraNICs(vmName, extraNics)
 }
 func ListVMInterfaces(vmName string) ([]VMInterfaceInfo, error) {
 	return vpcpkg.ListVMInterfaces(vmName)
