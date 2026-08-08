@@ -109,6 +109,11 @@ func FormatAndMountStoragePool(ctx context.Context, id string, fstype string, pr
 		return err
 	}
 
+	// 后期新建存储池（大容量盘）的挂载路径默认不在 install.sh 的 fcontext 规则内，
+	// 若不打标，libvirt 启动/快照时 qemu 写镜像会被 SELinux 拦截。此处对整个挂载点
+	// 幂等补写 svirt_image_t 规则并 restorecon，保证任意后建路径均可正常快照/写入。
+	utils.EnsureSELinuxLabel(mountPath, vmDir)
+
 	progress(92, "正在保存存储池配置...")
 	displayName := pool.DisplayName
 	if strings.TrimSpace(displayName) == "" {

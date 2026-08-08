@@ -18,7 +18,37 @@ var (
 	selinuxModeOnce    sync.Once
 	selinuxModeCached  = ""
 	selinuxModeInvalid = false
+
+	// fcontextDone 缓存已补写 fcontext 规则的目录，避免每次打标都 exec semanage。
+	// 进程重启后重新探测，缺失时按需重建，幂等。
+	fcontextDone sync.Map
 )
+
+// ensureSVirtFileContext 确保目录及其子路径在 semanage 中存在 svirt_image_t 规则。
+// restorecon 仅在 fcontext 有匹配规则时才会把文件恢复成 svirt_image_t；对用户
+// 后期新建的存储路径（如面板存储池挂载的大盘 /dataX、/3T-xxx 等）默认无规则，
+// restoreconvol 会把它reset成 default_t，导致 qemu 写镜像时被 SELinux 拦截
+//（快照 "Input/output error / Operation not supported"）。
+// 该函数在任意新路径写入镜像前幂等补上规则，与 install.sh 的 apply_storage_selinux_label
+// 行为一致，确保"换机器/换路径/后建存储池"三种场景下快照与写入均可正常。
+// semanage 不可用时跳过（restorecon 规则缺失时打标会失效，但仍尽力而为）。
+func EnsureSVirtImageFcontext(dir string) {
+	if !SelinuxEnforcing() {
+		return
+	}
+	if dir == "" {
+		return
+	}
+	if _, ok := fcontextDone.Load(dir); ok {
+		return
+	}
+	fcontextDone.Store(dir, struct{}{})
+	if LookupCmdPath("semanage") == "" || LookupCmdPath("restorecon") == "" {
+		return
+	}
+	// 与 install.sh 使用相同的正则约定：已存在的规则 semanage 报错，忽略即可（幂等）。
+	_ = ExecCommand("semanage", "fcontext", "-a", "-t", "svirt_image_t", dir+"(/.*)?")
+}
 
 // SelinuxMode 返回 SELinux 状态：Enforcing / Permissive / Disabled（含 getenforce 不可用等异常）。
 // 结果缓存，避免每次 VM 操作都 exec。
@@ -44,9 +74,10 @@ func SelinuxEnforcing() bool {
 	return SelinuxMode() == "Enforcing"
 }
 
-// EnsureSELinuxLabel 在 SELinux Enforcing 下对指定路径执行 restorecon（幂等）。
-// 目录递归处理，文件按 fcontext 单条打标；对 immutable（chattr +i）目标临时解除后
-// 打标再恢复，确保模板保护不丢。失败静默忽略（权限不足/非 Enforcing 不影响主流程）。
+// EnsureSELinuxLabel 在 SELinux Enforcing 下对指定路径执行 fcontext 规则补写与
+// restorecon（幂等）。目录递归处理，文件按 fcontext 单条打标；对 immutable
+// （chattr +i）目标临时解除后打标再恢复，确保模板保护不丢。失败静默忽略
+// （权限不足/非 Enforcing 不影响主流程）。
 // 注意：后端需以 root 运行才有权限打标（面板默认 root）。
 func EnsureSELinuxLabel(paths ...string) {
 	if !SelinuxEnforcing() {
@@ -57,6 +88,8 @@ func EnsureSELinuxLabel(paths ...string) {
 		if p == "" {
 			continue
 		}
+		// 自定义/后建存储路径默认没有 svirt_image_t 规则，先补写保证 restorecon 生效
+		EnsureSVirtImageFcontext(p)
 		info, err := os.Stat(p)
 		if err != nil {
 			continue
