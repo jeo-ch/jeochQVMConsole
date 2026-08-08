@@ -3,6 +3,7 @@ package handler
 // VM SSE 实时推送相关 handler
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -29,7 +30,7 @@ func GetVmListSSE(c *gin.Context) {
 	if isAdmin {
 		service.TriggerAdminVMCacheRefreshIfNeeded()
 	}
-	if vms, err := service.ListCachedVMs(listOptions); err == nil {
+	if vms, err := loadVMListForRole(c, isAdmin, listOptions); err == nil {
 		c.SSEvent("vm_list", vms)
 		c.Writer.Flush()
 	}
@@ -42,7 +43,7 @@ func GetVmListSSE(c *gin.Context) {
 			if isAdmin {
 				service.TriggerAdminVMCacheRefreshIfNeeded()
 			}
-			vms, err := service.ListCachedVMs(listOptions)
+			vms, err := loadVMListForRole(c, isAdmin, listOptions)
 			if err != nil {
 				if service.IsLibvirtUnavailableError(err) {
 					c.SSEvent("vm_list", []service.VmInfo{})
@@ -54,6 +55,15 @@ func GetVmListSSE(c *gin.Context) {
 			c.Writer.Flush()
 		}
 	}
+}
+
+// loadVMListForRole 按角色加载 VM 列表：admin 查看全部，普通用户仅查看自己拥有的 VM。
+func loadVMListForRole(c *gin.Context, isAdmin bool, listOptions service.VMListOptions) ([]service.VmInfo, error) {
+	if isAdmin {
+		return service.ListCachedVMs(listOptions)
+	}
+	username, _ := c.Get("username")
+	return service.ListCachedVMsByOwner(fmt.Sprintf("%v", username), listOptions)
 }
 
 // GetVmDetailSSE SSE 实时推送虚拟机详情

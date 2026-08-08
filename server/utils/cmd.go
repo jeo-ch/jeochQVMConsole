@@ -377,6 +377,22 @@ func ShellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
+// ValidateUsername 校验用户名格式是否合法（白名单校验，防止用户名被拼进 shell 造成命令注入，
+// 也避免路径包含威胁字符）。合法字符：字母、数字、下划线、连字符、点。
+func ValidateUsername(username string) bool {
+	if username == "" || len(username) < 3 || len(username) > 32 {
+		return false
+	}
+	for _, r := range username {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 var lsblkMountpointsColumnVal = ""
 
 // LsblkMountpointsColumn 返回 lsblk 挂载点列名。

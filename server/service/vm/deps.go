@@ -120,6 +120,7 @@ type Deps struct {
 
 	// ---- CPU / Topology / Clock ----
 	ParseVCPUCountFromDomainXML         func(xmlStr string) int
+	ParseMaxVCPUFromDomainXML           func(xmlStr string) int
 	ParseVMCPULimitPercentFromDomainXML func(xmlStr string, vcpu int) int
 	ParseCPUAffinityFromDomainXML       func(xmlStr string) string
 	ParseVMCPUTopologyModeFromDomainXML func(xmlStr string) string

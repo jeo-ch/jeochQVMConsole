@@ -166,6 +166,11 @@ func CreateUser(c *gin.Context) {
 	if role == "" {
 		role = "user"
 	}
+	username := strings.TrimSpace(req.Username)
+	if !utils.ValidateUsername(username) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名长度必须在3-32个字符之间，且仅允许字母、数字、下划线、连字符、点"})
+		return
+	}
 	cloudType := service.NormalizeCloudType(req.CloudType)
 	enablePortForward := resolveCreateUserEnablePortForward(role, req.EnablePortForward)
 	maxPortForwards := resolveCreateUserMaxPortForwards(role, req.MaxPortForwards)
@@ -205,7 +210,7 @@ func CreateUser(c *gin.Context) {
 		}
 
 		// 直接创建激活用户
-		user, err := service.CreateActiveUserDirectly(req.Username, email, password, role, cloudType, dedicatedVPCSwitchID, useExistingVMs,
+		user, err := service.CreateActiveUserDirectly(username, email, password, role, cloudType, dedicatedVPCSwitchID, useExistingVMs,
 			req.MaxCPU, req.MaxMemory, req.MaxDisk, req.MaxVM, req.MaxStorage, req.MaxRuntimeHours,
 			enablePortForward, maxPortForwards, maxSnapshots,
 			req.MaxBandwidthUp, req.MaxBandwidthDown, req.MaxTrafficDown, req.MaxTrafficUp, req.MaxPublicIPs)
@@ -251,7 +256,7 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, inviteToken, err := service.CreatePendingInvitedUserWithExistingVMs(req.Username, req.Email, role, cloudType, dedicatedVPCSwitchID, useExistingVMs,
+	user, inviteToken, err := service.CreatePendingInvitedUserWithExistingVMs(username, req.Email, role, cloudType, dedicatedVPCSwitchID, useExistingVMs,
 		req.MaxCPU, req.MaxMemory, req.MaxDisk, req.MaxVM, req.MaxStorage, req.MaxRuntimeHours, enablePortForward, maxPortForwards, maxSnapshots,
 		req.MaxBandwidthUp, req.MaxBandwidthDown, req.MaxTrafficDown, req.MaxTrafficUp, req.MaxPublicIPs)
 	if err != nil {

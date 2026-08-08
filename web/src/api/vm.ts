@@ -421,6 +421,7 @@ export interface VmDetailInfo {
   tags: string[]
   status: string
   vcpu: number
+  max_vcpu: number
   memory: number // MB
   max_memory: number
   ip: string
@@ -1009,6 +1010,7 @@ export interface CloneVmPayload {
   extra_nics?: ExtraNicPayload[]
   preserve_fnos_device_id?: boolean
   fnos_device_id?: string
+  template_category?: string
   extra_disks?: ExtraDiskPayload[]
   host_devices?: HostDevicePayload[]
   pcie_root_ports?: number
@@ -1069,6 +1071,8 @@ export interface BatchCloneVmPayload {
   system_disk_iops?: { total_iops_sec?: number; read_iops_sec?: number; write_iops_sec?: number }
   memory_dynamic?: MemoryDynamicPayload
   template_category?: string
+  preserve_fnos_device_id?: boolean
+  fnos_device_id?: string
   pcie_root_ports?: number
   static_ip?: string
   gateway?: string

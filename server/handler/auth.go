@@ -14,6 +14,7 @@ import (
 	"kvm_console/model"
 	"kvm_console/service"
 	securitypkg "kvm_console/service/security"
+	"kvm_console/utils"
 )
 
 type LoginRequest struct {
@@ -432,8 +433,8 @@ func ChangeUsername(c *gin.Context) {
 		return
 	}
 	newUsername := strings.TrimSpace(req.NewUsername)
-	if len(newUsername) < 3 || len(newUsername) > 32 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名长度必须在3-32个字符之间"})
+	if !utils.ValidateUsername(newUsername) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "用户名长度必须在3-32个字符之间，且仅允许字母、数字、下划线、连字符、点"})
 		return
 	}
 

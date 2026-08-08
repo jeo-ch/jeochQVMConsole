@@ -121,6 +121,7 @@ func init() {
 
 		// ---- CPU / Topology / Clock ----
 		ParseVCPUCountFromDomainXML:         vmpkg.ParseVCPUCountFromDomainXML,
+		ParseMaxVCPUFromDomainXML:           vmpkg.ParseMaxVCPUFromDomainXML,
 		ParseVMCPULimitPercentFromDomainXML: vmpkg.ParseVMCPULimitPercentFromDomainXML,
 		ParseCPUAffinityFromDomainXML:       vmpkg.ParseCPUAffinityFromDomainXML,
 		ParseVMCPUTopologyModeFromDomainXML: vmpkg.ParseVMCPUTopologyModeFromDomainXML,

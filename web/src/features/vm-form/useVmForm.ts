@@ -79,6 +79,12 @@ export function buildEditFormState(
   next.cpu_limit_enabled = Number(detail.cpu_limit_percent || 0) > 0
   next.cpu_limit_percent = next.cpu_limit_enabled ? Number(detail.cpu_limit_percent) : 100
   next.cpu_affinity = detail.cpu_affinity || ''
+  const detailMaxVCPU = Number(detail.max_vcpu || 0)
+  if (detailMaxVCPU > 0 && detailMaxVCPU > Number(detail.vcpu || 0)) {
+    next.cpu_hotplug_enabled = true
+  } else {
+    next.cpu_hotplug_enabled = false
+  }
   const rowMemoryGB = Math.max(1, Math.round((detail.memory || row.memory || 1024) / 1024))
   if (next.memory_dynamic_enabled && next.memory_backend === 'virtio_mem') {
     next.memory = getElasticMemorySpecFromConfig(
@@ -195,6 +201,7 @@ export function useVmForm({ isEdit, registration, hostArch }: UseVmFormParams) {
       setForm((prev) => {
         const next = { ...prev }
         next.template_type = tpl.type || ''
+        next.template_category = tpl.category || ''
         if (next.template_type !== 'fnos') {
           next.preserve_fnos_device_id = false
           next.fnos_device_id_mode = 'regenerate'

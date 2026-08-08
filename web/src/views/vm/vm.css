@@ -67,7 +67,11 @@
   font-size: 12px;
 }
 body[theme-mode='dark'] .qvm-export-format-option .semi-radio-addon,
-body[theme-mode='dark'] .qvm-export-disk-list strong {
+body[theme-mode='dark'] .qvm-export-disk-list strong,
+body[theme-mode='dark'] .qvm-vm-name-text,
+body[theme-mode='dark'] .qvm-pending-title,
+body[theme-mode='dark'] .qvm-pending-card-title,
+body[theme-mode='dark'] .qvm-maint-title {
   color: #b8c1cf;
 }
 @media (max-width: 640px) {

@@ -26,6 +26,7 @@ type VmInfo struct {
 	Tags                     []string             `json:"tags"`
 	Status                   string               `json:"status"`             // running, shut off, paused, etc.
 	VCPU                     int                  `json:"vcpu"`               // CPU 核心数
+	MaxVCPU                  int                  `json:"max_vcpu"`           // CPU 热添加上限（0 表示未启用）
 	Memory                   int                  `json:"memory"`             // 内存（MB）
 	MaxMemory                int                  `json:"max_memory"`         // 最大内存（MB）
 	IP                       string               `json:"ip"`                 // IP 地址

@@ -90,12 +90,19 @@ func GetVmList(c *gin.Context) {
 		service.TriggerAdminVMCacheRefreshIfNeeded()
 	}
 
-	vms, err := service.ListCachedVMs(buildVMListOptions(c))
+	listOptions := buildVMListOptions(c)
+	var vms []service.VmInfo
+	var err error
+	if role == "admin" {
+		vms, err = service.ListCachedVMs(listOptions)
+	} else {
+		username, _ := c.Get("username")
+		vms, err = service.ListCachedVMsByOwner(fmt.Sprintf("%v", username), listOptions)
+	}
 	if err != nil {
 		respondVMListError(c, err)
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "ok",

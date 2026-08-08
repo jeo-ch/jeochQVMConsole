@@ -78,6 +78,20 @@ type OSVariantInfo struct {
 	Category string `json:"category"` // 分类: Linux/Windows/Other
 }
 
+// validOSVariantToken 校验系统变体 ID 是否为安全 token（仅字母数字与短横线/点，避免注入）。
+func validOSVariantToken(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // ListOSVariants 获取可用的系统变体列表。
 // 优先用 libosinfo 标准命令 osinfo-query os（旧版 virt-install 如麒麟 2.2.1 不支持 --osinfo list，
 // 只支持 --osinfo list 的 virt-install 3.0+ 会 exit 2），失败再回退 virt-install --osinfo list。
@@ -241,6 +255,34 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	}
 	if len(params.BootOrder) == 0 {
 		params.BootOrder = []string{"hd"}
+	}
+
+	// 对拼进 shell 的参数做白名单校验，防命令注入。字段全部来自创建/克隆请求，
+	// 管理员与普通用户都可达，故在此统一校验（服务层兜底，前端下拉框已限值）。
+	switch params.VirtType {
+	case "kvm", "qemu", "hvf", "xen":
+	default:
+		return "", fmt.Errorf("不支持的虚拟化方案: %s", params.VirtType)
+	}
+	if !slices.Contains(arch.SupportedArchs(), params.Arch) {
+		return "", fmt.Errorf("不支持的架构: %s", params.Arch)
+	}
+	if params.OSVariant != "" && !validOSVariantToken(params.OSVariant) {
+		return "", fmt.Errorf("无效的系统变体: %s", params.OSVariant)
+	}
+	switch params.DiskFormat {
+	case "qcow2", "raw":
+	default:
+		return "", fmt.Errorf("不支持的磁盘格式: %s", params.DiskFormat)
+	}
+	switch params.Watchdog {
+	case "", "none", "i6300esb", "ib700", "diag288":
+	default:
+		return "", fmt.Errorf("不支持的看门狗类型: %s", params.Watchdog)
+	}
+	// 磁盘总线与网卡模型同样进入 shell/XML，做白名单约束
+	if params.DiskBus != "" && !slices.Contains([]string{"virtio", "sata", "scsi", "ide", "usb"}, params.DiskBus) {
+		return "", fmt.Errorf("不支持的磁盘总线类型: %s", params.DiskBus)
 	}
 
 	if !params.IsAdmin {

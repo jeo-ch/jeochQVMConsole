@@ -102,6 +102,7 @@ export interface VmFormModel {
   // ===== 模板模式 =====
   template: string
   template_type: string
+  template_category: string
   preserve_fnos_device_id: boolean
   fnos_device_id_mode: string // regenerate / preserve / custom
   fnos_device_id: string

@@ -107,6 +107,7 @@ func GetVM(name string) (*VmDetail, error) {
 	if configVCPU := D.ParseVCPUCountFromDomainXML(xmlStr); configVCPU > 0 {
 		vm.VCPU = configVCPU
 	}
+	vm.MaxVCPU = D.ParseMaxVCPUFromDomainXML(xmlStr)
 	vm.OSType = DetectVMOSType(vm.Template, xmlStr)
 	vm.BootType = vm_xml.ParseVMBootTypeFromDomainXML(xmlStr)
 	vm.Arch = vm_xml.ParseVMArchFromDomainXML(xmlStr)

@@ -289,6 +289,7 @@ export const buildClonePayload = (form: VmFormModel, ctx: CloneBuildContext): Cl
     system_disk_iops: buildSystemDiskIopsPayload(form, ctx.isAdmin),
     preserve_fnos_device_id: ctx.shouldPreserveFnosDeviceId,
     fnos_device_id: ctx.customFnosDeviceId,
+    template_category: form.template_category || undefined,
     extra_disks: buildExtraDisksPayload(form),
     host_devices: form.host_devices,
     pcie_root_ports: form.pcie_root_ports,
@@ -316,6 +317,9 @@ export const buildBatchClonePayload = (
     count: form.batch_count,
     hostname: '', // 批量模式每台由后端自动生成独立主机名
     template_user: initUser,
+    preserve_fnos_device_id: ctx.shouldPreserveFnosDeviceId,
+    fnos_device_id: ctx.customFnosDeviceId,
+    template_category: form.template_category || undefined,
     extra_disks: buildExtraDisksPayload(form),
     host_devices: form.host_devices,
     system_disk_iops: buildSystemDiskIopsPayload(form, ctx.isAdmin),

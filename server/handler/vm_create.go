@@ -26,6 +26,7 @@ type CreateVmRequest struct {
 	OSVariant       string                            `json:"os_variant"`
 	ISOPath         string                            `json:"iso_path"`
 	ISOPaths        []string                          `json:"iso_paths"`
+	FloppyImage     string                            `json:"floppy_image"`
 	NicModel        string                            `json:"nic_model"` // 网卡类型: virtio/e1000e/rtl8139
 	Autostart       bool                              `json:"autostart"`
 	Freeze          bool                              `json:"freeze"`
@@ -123,6 +124,7 @@ func CreateVm(c *gin.Context) {
 		OSVariant:       req.OSVariant,
 		ISOPath:         req.ISOPath,
 		ISOPaths:        req.ISOPaths,
+		FloppyImage:     req.FloppyImage,
 		NicModel:        req.NicModel,
 		Autostart:       req.Autostart,
 		Freeze:          req.Freeze,

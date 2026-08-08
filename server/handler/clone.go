@@ -773,6 +773,20 @@ func GetVmQcow2Disks(c *gin.Context) {
 		return
 	}
 
+	// 普通用户仅能查看自己拥有的虚拟机的磁盘
+	role, _ := c.Get("role")
+	if role != "admin" {
+		username, _ := c.Get("username")
+		usernameStr, _ := username.(string)
+		if !service.UserOwnsVM(usernameStr, name) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
+				"message": "无权操作此虚拟机",
+			})
+			return
+		}
+	}
+
 	disks, err := service.GetVMQcow2Disks(name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

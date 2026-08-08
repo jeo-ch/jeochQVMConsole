@@ -218,7 +218,13 @@
 body[theme-mode='dark'] .qvm-vf-mode-card-title,
 body[theme-mode='dark'] .qvm-vf-section-title,
 body[theme-mode='dark'] .qvm-vf-appliance-mode-option .semi-radio-addon,
-body[theme-mode='dark'] .qvm-vf-appliance-meta strong {
+body[theme-mode='dark'] .qvm-vf-appliance-meta strong,
+body[theme-mode='dark'] .qvm-vf-step-title,
+body[theme-mode='dark'] .qvm-vf-os-card-name,
+body[theme-mode='dark'] .qvm-vf-import-disk-header,
+body[theme-mode='dark'] .qvm-vf-boot-type,
+body[theme-mode='dark'] .qvm-vf-advanced-intro-title,
+body[theme-mode='dark'] .qvm-vf-config-entry-title {
   color: #b8c1cf;
 }
 

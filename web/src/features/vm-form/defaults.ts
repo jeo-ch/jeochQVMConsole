@@ -115,6 +115,7 @@ export function createDefaultVmForm(options: CreateDefaultFormOptions = {}): VmF
     appliance_metadata: null,
     template: '',
     template_type: '',
+    template_category: '',
     preserve_fnos_device_id: false,
     fnos_device_id_mode: 'regenerate',
     fnos_device_id: '',
