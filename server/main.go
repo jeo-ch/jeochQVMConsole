@@ -45,6 +45,8 @@ func main() {
 		os.Exit(0)
 	case firstArg == "smoke-selfcheck":
 		os.Exit(runSmokeSelfCheck())
+	case len(os.Args) > 1 && os.Args[1] == "system-compatibility-check":
+		os.Exit(runSystemCompatibilityCheckCommand(os.Args[2:]))
 	case len(os.Args) > 1 && os.Args[1] == "host-zram-apply":
 		if err := service.ApplyHostZRAMPersistentProfile(); err != nil {
 			log.Fatalf("恢复 zRAM 失败: %v", err)
