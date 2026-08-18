@@ -9,13 +9,12 @@ import (
 	"kvm_console/config"
 	"kvm_console/service"
 	"kvm_console/service/arch"
-	vm_memory "kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
 
 // importVMWindowsDefine handles Windows VM XML construction and define for ImportVM
-func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, ramMB int, memoryMeta *vm_memory.VMMemoryMetadata, srcDiskPath string, needUEFI bool) error {
+func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, ramMB int, srcDiskPath string, needUEFI bool) error {
 	// 获取宿主机架构 Profile，参数化 arch/machine/emulator/watchdog
 	hostArch := arch.DetectHostArch()
 	profile := arch.GetProfile(hostArch)
@@ -107,8 +106,8 @@ func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, 
 %s
     <input type='tablet' bus='usb'/>
     <tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm>
-    <graphics type='vnc' port='-1' autoport='yes' listen='0.0.0.0'>
-      <listen type='address' address='0.0.0.0'/>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
     </graphics>
     <video><model type='virtio' heads='1' primary='yes'/></video>
     <watchdog model='%s' action='reset'/>
@@ -134,13 +133,6 @@ func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, 
 	)
 
 	var err error
-	if memoryMeta != nil {
-		vmXML, err = vm_memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
-		if err != nil {
-			_ = os.Remove(destDiskPath)
-			return err
-		}
-	}
 	vmXML, err = vm_xml.ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 	if err != nil {
 		_ = os.Remove(destDiskPath)
@@ -231,11 +223,12 @@ func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, 
 	}
 	preserveNVRAM = true
 
-	return importVMPostDefine(params.Name, srcDiskPath, destDiskPath, params.CopyDisk, memoryMeta, params.Remark, params.Freeze, params.StartAfterImport)
+	return importVMPostDefine(params.Name, srcDiskPath, destDiskPath, params.CopyDisk, params.Remark, params.Freeze, params.StartAfterImport,
+		params.Username, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses)
 }
 
 // importDiskByPathWindowsDefine handles Windows VM XML construction and define for ImportDiskByPath
-func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath, format string, ramMB int, memoryMeta *vm_memory.VMMemoryMetadata, mainDiskSrc string) error {
+func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath, format string, ramMB int, mainDiskSrc string) error {
 	// 获取宿主机架构 Profile，参数化 arch/machine/emulator/watchdog
 	hostArch := arch.DetectHostArch()
 	profile := arch.GetProfile(hostArch)
@@ -327,8 +320,8 @@ func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath,
 %s
     <input type='tablet' bus='usb'/>
     <tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm>
-    <graphics type='vnc' port='-1' autoport='yes' listen='0.0.0.0'>
-      <listen type='address' address='0.0.0.0'/>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
     </graphics>
     <video><model type='virtio' heads='1' primary='yes'/></video>
     <watchdog model='%s' action='reset'/>
@@ -356,13 +349,6 @@ func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath,
 	)
 
 	var err error
-	if memoryMeta != nil {
-		vmXML, err = vm_memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, false)
-		if err != nil {
-			_ = os.Remove(destDiskPath)
-			return err
-		}
-	}
 	vmXML, err = vm_xml.ApplyVMGuestAgentConfigToDomainXML(vmXML, params.GuestAgent)
 	if err != nil {
 		_ = os.Remove(destDiskPath)
@@ -447,7 +433,8 @@ func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath,
 	}
 	preserveNVRAM = true
 
-	return importVMPostDefine(params.Name, mainDiskSrc, destDiskPath, params.CopyDisk, memoryMeta, params.Remark, params.Freeze, params.StartAfterImport)
+	return importVMPostDefine(params.Name, mainDiskSrc, destDiskPath, params.CopyDisk, params.Remark, params.Freeze, params.StartAfterImport,
+		params.Username, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses)
 }
 
 // validateWindowsImportDomainXML 在交给 libvirt 前校验生成结果，避免格式化参数错位产生残缺 XML。

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -40,7 +41,7 @@ func CreateNetworkBridge(req NetworkBridgeRequest) (*model.NetworkBridge, error)
 	// 创建前捕获物理网卡当前 IP 配置（必须在加入 OVS 之前）
 	var ipCfg HostIPConfig
 	if req.MigrateHostIP {
-		ipCfg = CaptureInterfaceIPv4(req.UplinkIF)
+		ipCfg = CaptureInterfaceIP(req.UplinkIF)
 	}
 	if err := EnsureOVSBridgeDirect(req.Name, req.UplinkIF, req.MigrateHostIP, ipCfg); err != nil {
 		return nil, err
@@ -49,6 +50,7 @@ func CreateNetworkBridge(req NetworkBridgeRequest) (*model.NetworkBridge, error)
 		Name: req.Name, Mode: BridgeModeDirect, UplinkIF: req.UplinkIF,
 		MigrateHostIP: req.MigrateHostIP,
 		HostAddrs:     ipCfg.Addrs, HostGateway: ipCfg.Gateway, HostMetric: ipCfg.Metric, HostDNS: ipCfg.DNS,
+		HostAddrs6: ipCfg.Addrs6, HostGateway6: ipCfg.Gateway6, HostMetric6: ipCfg.Metric6,
 	}
 	if model.DB != nil {
 		if err := model.DB.Create(row).Error; err != nil {
@@ -81,31 +83,33 @@ func EnsureOVSBridgeDirect(bridge, uplink string, migrateHostIP bool, cfg HostIP
 		return fmt.Errorf("创建桥接网桥失败: %s", result.Stderr)
 	}
 	utils.ExecCommand("ip", "link", "set", bridge, "up")
-	if result := utils.ExecCommand("ovs-vsctl", "--may-exist", "add-port", bridge, uplink); result.Error != nil {
-		return fmt.Errorf("添加物理网卡到桥接网桥失败: %s", result.Stderr)
+	if uplink != "" {
+		if result := utils.ExecCommand("ovs-vsctl", "--may-exist", "add-port", bridge, uplink); result.Error != nil {
+			return fmt.Errorf("添加物理网卡到桥接网桥失败: %s", result.Stderr)
+		}
+		utils.ExecCommand("ip", "link", "set", uplink, "up")
 	}
-	utils.ExecCommand("ip", "link", "set", uplink, "up")
-	// IP 迁移逻辑
-	if migrateHostIP {
+	// IP 迁移逻辑（同时处理 IPv4 和 IPv6）
+	if migrateHostIP && uplink != "" {
 		// 检查网桥是否已有 IP（重启恢复场景：systemd 服务已应用了静态 IP）
-		bridgeCfg := CaptureInterfaceIPv4(bridge)
-		bridgeHasIP := strings.TrimSpace(bridgeCfg.Addrs) != ""
+		bridgeCfg := CaptureInterfaceIP(bridge)
+		bridgeHasIP := strings.TrimSpace(bridgeCfg.Addrs) != "" || strings.TrimSpace(bridgeCfg.Addrs6) != ""
 		if !bridgeHasIP {
 			// 网桥没有 IP，尝试从物理口迁移或使用存储值
-			uplinkCfg := CaptureInterfaceIPv4(uplink)
-			if strings.TrimSpace(uplinkCfg.Addrs) != "" {
-				// 物理口有 IP，执行动态迁移
-				migrateInterfaceIPv4ToBridge(uplink, bridge)
-			} else if strings.TrimSpace(cfg.Addrs) != "" {
-				// 物理口也没 IP，使用存储的静态配置恢复
-				applyStaticIPv4ToBridge(bridge, cfg)
+			uplinkCfg := CaptureInterfaceIP(uplink)
+			if strings.TrimSpace(uplinkCfg.Addrs) != "" || strings.TrimSpace(uplinkCfg.Addrs6) != "" {
+				// 物理口有 IP，执行动态迁移（IPv4 + IPv6）
+				migrateInterfaceIPToBridge(uplink, bridge)
+			} else if strings.TrimSpace(cfg.Addrs) != "" || strings.TrimSpace(cfg.Addrs6) != "" {
+				// 物理口也没 IP，使用存储的静态配置恢复（IPv4 + IPv6）
+				applyStaticIPToBridge(bridge, cfg)
 			}
 		}
 		// DNS 总是需要确保配置正确（重启恢复场景下即使网桥已有 IP，DNS 也可能丢失）
 		ensureBridgeResolvedDNSWithStatic(uplink, bridge, cfg.DNS)
 		// 如果 cfg 为空但网桥已有 IP，更新 cfg 用于写入脚本
-		if strings.TrimSpace(cfg.Addrs) == "" {
-			cfg = CaptureInterfaceIPv4(bridge)
+		if strings.TrimSpace(cfg.Addrs) == "" && strings.TrimSpace(cfg.Addrs6) == "" {
+			cfg = CaptureInterfaceIP(bridge)
 			// 同时保留已有的 DNS 信息
 			if cfg.DNS == "" {
 				cfg.DNS = captureInterfaceDNSServers(bridge)
@@ -121,7 +125,9 @@ func EnsureOVSBridgeDirect(bridge, uplink string, migrateHostIP bool, cfg HostIP
 		}
 	}
 	// IP 已迁移完成后再禁用 networkd DHCP，避免周期性 DHCP Discover 干扰 OVS 数据通道
-	disableNetworkdDHCPForPort(uplink)
+	if uplink != "" {
+		disableNetworkdDHCPForPort(uplink)
+	}
 	if err := writeBridgeRestoreScript(bridge, uplink, migrateHostIP, cfg); err != nil {
 		return err
 	}
@@ -160,6 +166,96 @@ func validateBridgeUplink(uplink, targetBridge string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateVPCSwitchUplink 校验交换机上行链路的占用关系与三层出口条件。
+// 托管 NAT 上行允许共享；二层直通只有在共用同一网桥且 VLAN 唯一时允许共享。
+func ValidateVPCSwitchUplink(uplink, uplinkGateway string, managed bool, switchID uint, targetBridge string, bridgeVLANID int) error {
+	uplink = strings.TrimSpace(uplink)
+	uplinkGateway = strings.TrimSpace(uplinkGateway)
+	if !isPhysicalInterface(uplink) {
+		return fmt.Errorf("请选择真实物理网卡")
+	}
+	if model.DB != nil {
+		query := model.DB.Model(&model.VPCSwitch{}).Where("uplink_if = ?", uplink)
+		if switchID > 0 {
+			query = query.Where("id <> ?", switchID)
+		}
+		if !managed {
+			var switches []model.VPCSwitch
+			query.Find(&switches)
+			for _, sw := range switches {
+				// 托管 NAT 只借用三层出口，不占用二层直通网桥。
+				if sw.DHCPEnabled {
+					continue
+				}
+				if strings.TrimSpace(sw.BridgeName) != strings.TrimSpace(targetBridge) {
+					return fmt.Errorf("物理网卡 %s 已由其它直通网桥使用", uplink)
+				}
+				if bridgeVLANID == 0 {
+					return fmt.Errorf("物理网卡 %s 已有直通交换机，共享该上行时 VLAN ID 必须为 1-4094", uplink)
+				}
+				if sw.BridgeVLANID == bridgeVLANID {
+					return fmt.Errorf("物理网卡 %s 的桥接 VLAN ID %d 已被交换机「%s」使用", uplink, bridgeVLANID, sw.Name)
+				}
+			}
+		}
+
+		var legacyCount int64
+		model.DB.Model(&model.NetworkBridge{}).Where("uplink_if = ? AND name <> ?", uplink, strings.TrimSpace(targetBridge)).Count(&legacyCount)
+		if legacyCount > 0 && !managed {
+			return fmt.Errorf("物理网卡 %s 已由历史宿主机网桥使用", uplink)
+		}
+	}
+	ports := readOVSPortBridgeMap()
+	if currentBridge := strings.TrimSpace(ports[uplink]); currentBridge != "" && currentBridge != strings.TrimSpace(targetBridge) {
+		if !managed && currentBridge == ovspkg.OvsBridgeName() {
+			return fmt.Errorf("物理网卡 %s 是系统基础网络上行，不能切换为二层直通", uplink)
+		}
+		ownedByCurrentSwitch := false
+		if model.DB != nil && switchID > 0 {
+			var current model.VPCSwitch
+			if err := model.DB.First(&current, switchID).Error; err == nil {
+				ownedByCurrentSwitch = strings.EqualFold(strings.TrimSpace(current.UplinkIF), uplink) &&
+					strings.EqualFold(strings.TrimSpace(current.BridgeName), currentBridge)
+			}
+		}
+		// 托管 NAT 可以从已有 OVS 直通网桥的三层接口出站，不会重复接管物理端口。
+		if !ownedByCurrentSwitch && !managed {
+			return fmt.Errorf("物理网卡 %s 已接入 OVS 网桥 %s", uplink, currentBridge)
+		}
+	}
+	if managed {
+		effective := EffectiveL3Interface(uplink)
+		cfg := CaptureInterfaceIPv4(effective)
+		if strings.TrimSpace(cfg.Addrs) == "" {
+			return fmt.Errorf("物理网卡 %s 的有效三层接口 %s 缺少可用的 IPv4 地址", uplink, effective)
+		}
+		gateway := uplinkGateway
+		if gateway == "" {
+			gateway = strings.TrimSpace(cfg.Gateway)
+		}
+		if gateway == "" {
+			return fmt.Errorf("物理网卡 %s 已检测到 IPv4 地址，但未检测到该出口的默认网关，请填写上行网关", uplink)
+		}
+		if ip := net.ParseIP(gateway); ip == nil || ip.To4() == nil {
+			return fmt.Errorf("物理网卡 %s 的上行网关不是有效的 IPv4 地址", uplink)
+		}
+	}
+	return nil
+}
+
+// EffectiveL3Interface 返回内核实际承载地址与默认路由的三层接口。
+func EffectiveL3Interface(uplink string) string {
+	uplink = strings.TrimSpace(uplink)
+	if uplink == "" {
+		return ""
+	}
+	bridge := strings.TrimSpace(readOVSPortBridgeMap()[uplink])
+	if bridge != "" && len(CaptureInterfaceIPv4(bridge).Addrs) > 0 {
+		return bridge
+	}
+	return uplink
 }
 
 func ovsBridgeExists(name string) bool {

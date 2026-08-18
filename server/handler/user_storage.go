@@ -470,6 +470,8 @@ type SelfCreateVmRequest struct {
 	MemoryDynamic   *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID        uint                              `json:"switch_id"`
 	SecurityGroupID uint                              `json:"security_group_id"`
+	AllowedIPv4Addresses string                       `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                       `json:"allowed_ipv6_addresses"`
 	ExtraNics       []service.AddVMInterfaceRequest   `json:"extra_nics"`
 	StoragePoolID   string                            `json:"storage_pool_id"`
 	PCIERootPorts   int                               `json:"pcie_root_ports,omitempty"` // q35 预留 pcie-root-port 数量
@@ -575,8 +577,16 @@ func SelfCreateVm(c *gin.Context) {
 		})
 		return
 	}
+	// 附加网口仅允许接入用户自己的交换机
+	if err := service.ValidateExtraNicsForUser(usernameStr, req.ExtraNics); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": err.Error(),
+		})
+		return
+	}
 	// 仅当用户指定了交换机时才解析 VPC
-	if req.SwitchID != 0 {
+	if req.SwitchID != 0 || service.IsPortSecurityEnabled() {
 		switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -590,45 +600,43 @@ func SelfCreateVm(c *gin.Context) {
 	}
 
 	params := &service.CreateVMParams{
-		Name:            req.Name,
-		Remark:          req.Remark,
-		VCPU:            req.VCPU,
-		MaxVCPU:         req.MaxVCPU,
-		RAM:             req.RAM,
-		DiskSize:        req.DiskSize,
-		DiskFormat:      req.DiskFormat,
-		DiskBus:         req.DiskBus,
-		OSVariant:       req.OSVariant,
-		ISOPath:         req.ISOPath,
-		ISOPaths:        req.ISOPaths,
-		FloppyImage:     req.FloppyImage,
-		NicModel:        req.NicModel,
-		Autostart:       req.Autostart,
-		Freeze:          req.Freeze,
-		APIC:            req.APIC,
-		PAE:             req.PAE,
-		RTCOffset:       req.RTCOffset,
-		RTCStartDate:    req.RTCStartDate,
-		GuestAgent:      req.GuestAgent,
-		SMBIOS1:         req.SMBIOS1,
-		OSType:          req.OSType,
-		MachineType:     req.MachineType,
-		BootType:        req.BootType,
-		BootOrder:       req.BootOrder,
-		VideoModel:      req.VideoModel,
-		SpiceEnabled:    req.SpiceEnabled,
-		CPUTopologyMode: req.CPUTopologyMode,
-		VirtType:        "kvm",
-		SwitchID:        req.SwitchID,
-		SecurityGroupID: req.SecurityGroupID,
-		StoragePoolID:   req.StoragePoolID,
-		IsAdmin:         false,
-		ExtraNics:       req.ExtraNics,
-		PCIERootPorts:   req.PCIERootPorts,
-		MemoryDynamic: sanitizeUserMemoryDynamicRequest(
-			req.MemoryDynamic,
-			req.RAM,
-		),
+		Name:                 req.Name,
+		Remark:               req.Remark,
+		VCPU:                 req.VCPU,
+		MaxVCPU:              req.MaxVCPU,
+		RAM:                  req.RAM,
+		DiskSize:             req.DiskSize,
+		DiskFormat:           req.DiskFormat,
+		DiskBus:              req.DiskBus,
+		OSVariant:            req.OSVariant,
+		ISOPath:              req.ISOPath,
+		ISOPaths:             req.ISOPaths,
+		FloppyImage:          req.FloppyImage,
+		NicModel:             req.NicModel,
+		Autostart:            req.Autostart,
+		Freeze:               req.Freeze,
+		APIC:                 req.APIC,
+		PAE:                  req.PAE,
+		RTCOffset:            req.RTCOffset,
+		RTCStartDate:         req.RTCStartDate,
+		GuestAgent:           req.GuestAgent,
+		SMBIOS1:              req.SMBIOS1,
+		OSType:               req.OSType,
+		MachineType:          req.MachineType,
+		BootType:             req.BootType,
+		BootOrder:            req.BootOrder,
+		VideoModel:           req.VideoModel,
+		SpiceEnabled:         req.SpiceEnabled,
+		CPUTopologyMode:      req.CPUTopologyMode,
+		VirtType:             "kvm",
+		SwitchID:             req.SwitchID,
+		SecurityGroupID:      req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
+		StoragePoolID:        req.StoragePoolID,
+		IsAdmin:              false,
+		ExtraNics:            req.ExtraNics,
+		PCIERootPorts:        req.PCIERootPorts,
 	}
 	for _, disk := range req.ExtraDisks {
 		if disk.Size <= 0 {

@@ -20,6 +20,8 @@ export interface PublicIpBinding {
   vm_private_ip?: string
   mode: PublicIpMode
   runtime_status?: string
+  guest_ipv6_status?: string
+  guest_ipv6_message?: string
   config_hint?: string
   last_applied_at?: string
 }
@@ -39,6 +41,29 @@ export interface PublicIpItem {
   binding?: PublicIpBinding
   runtime_rules?: string[]
   issues?: string[]
+  address_family?: 'ipv4' | 'ipv6'
+  auto_ipv6?: boolean
+  ipv6_source_prefix?: string
+}
+
+export interface PublicIPv6PrefixInfo {
+  uplink_if: string
+  address: string
+  prefix: string
+  gateway?: string
+}
+
+export interface PublicIPv6PrefixImportPayload {
+  uplink_if: string
+  prefix: string
+  count: number
+  remark?: string
+}
+
+export interface PublicIPv6PrefixImportResult {
+  prefix: string
+  created: PublicIpItem[]
+  skipped: number
 }
 
 /** 公网 IP 创建/编辑请求 */
@@ -51,6 +76,33 @@ export interface PublicIpPayload {
   supported_modes?: string
   status?: string // free / reserved
   remark?: string
+}
+
+/** 批量新增公网 IP 请求，共用除 IP 外的字段 */
+export interface PublicIpBatchPayload {
+  ips: string[]
+  cidr?: string
+  gateway?: string
+  uplink_if?: string
+  supported_modes?: string
+  status?: string
+  remark?: string
+}
+
+/** 批量新增中单条 IP 的处理结果 */
+export interface PublicIpBatchItemResult {
+  ip: string
+  status: 'created' | 'skipped' | 'failed'
+  reason?: string
+  row?: PublicIpItem
+}
+
+/** 批量新增公网 IP 的汇总结果 */
+export interface PublicIpBatchResult {
+  created: number
+  skipped: number
+  failed: number
+  items: PublicIpBatchItemResult[]
 }
 
 /** 绑定/迁移请求 */
@@ -86,6 +138,30 @@ export function getPublicIPs() {
 /** 新增公网 IP */
 export function createPublicIP(data: PublicIpPayload) {
   return service.post<unknown, ApiResponse<PublicIpItem>>('/network/public-ips', data)
+}
+
+/** 批量新增公网 IP（共用除 IP 外的字段，一行一个） */
+export function batchCreatePublicIPs(data: PublicIpBatchPayload) {
+  return service.post<unknown, ApiResponse<PublicIpBatchResult>>(
+    '/network/public-ips/batch',
+    data,
+  )
+}
+
+/** 检测上联网卡当前通过 RA 获取的公网 IPv6 前缀 */
+export function discoverPublicIPv6Prefixes(uplinkIf?: string) {
+  return service.get<unknown, ApiResponse<PublicIPv6PrefixInfo[]>>(
+    '/network/public-ips/ipv6-prefixes',
+    { params: uplinkIf ? { uplink_if: uplinkIf } : undefined },
+  )
+}
+
+/** 将 IPv6 前缀展开为可逐台 VM 绑定的 /128 地址资源 */
+export function importPublicIPv6Prefix(data: PublicIPv6PrefixImportPayload) {
+  return service.post<unknown, ApiResponse<PublicIPv6PrefixImportResult>>(
+    '/network/public-ips/ipv6-prefixes/import',
+    data,
+  )
 }
 
 /** 更新公网 IP */
@@ -132,4 +208,54 @@ export function migratePublicIP(id: number, data: PublicIpBindPayload) {
 /** 重载全部公网 IP 规则（高风险，任务队列） */
 export function applyPublicIPRules() {
   return service.post<unknown, ApiResponse<PublicIpTaskResult>>('/network/public-ips/apply')
+}
+
+/** 批量操作单条结果 */
+export interface PublicIpBatchOpResult {
+  id: number
+  ip: string
+  status: 'success' | 'failed' | 'skipped'
+  reason?: string
+}
+
+/** 批量操作汇总 */
+export interface PublicIpBatchOpSummary {
+  success: number
+  failed: number
+  skipped: number
+  items: PublicIpBatchOpResult[]
+}
+
+/** 批量绑定单条参数 */
+export interface PublicIpBatchBindItem {
+  id: number
+  payload: PublicIpBindPayload
+}
+
+/** 批量删除公网 IP（高风险，已绑定的自动跳过） */
+export function batchDeletePublicIPs(ids: number[]) {
+  return service.delete<unknown, ApiResponse<PublicIpBatchOpSummary>>('/network/public-ips/batch', {
+    data: { ids },
+  })
+}
+
+/** 批量解绑公网 IP（高风险，任务队列） */
+export function batchUnbindPublicIPs(ids: number[]) {
+  return service.post<unknown, ApiResponse<PublicIpTaskResult>>(
+    '/network/public-ips/batch/unbind',
+    { ids },
+  )
+}
+
+/** 批量绑定公网 IP（高风险，任务队列） */
+export function batchBindPublicIPs(items: PublicIpBatchBindItem[]) {
+  return service.post<unknown, ApiResponse<PublicIpTaskResult>>(
+    '/network/public-ips/batch/bind',
+    {
+      items: items.map((item) => ({
+        public_ip_id: item.id,
+        bind_request: item.payload,
+      })),
+    },
+  )
 }

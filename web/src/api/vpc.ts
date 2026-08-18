@@ -15,10 +15,19 @@ export interface VpcSwitch {
   name: string
   bridge_name: string
   bridge_mode: string // nat / bridge
+  dhcp_enabled: boolean
+  uplink_mode: 'none' | 'physical' | 'system'
+  uplink_if: string
+  uplink_gateway: string
+  owns_bridge: boolean
+  migrate_host_ip: boolean
+  legacy_migration_required: boolean
   bridge_vlan_id: number
   allow_promiscuous?: boolean
   allow_mac_change?: boolean
   allow_forged_transmits?: boolean
+  ipv6_security_enabled?: boolean
+  trusted_ipv6_prefixes?: string
   vlan_id: number
   cidr: string
   gateway_ip: string
@@ -43,11 +52,19 @@ export interface VpcSwitch {
 export interface VpcSwitchPayload {
   username?: string
   name: string
+  dhcp_enabled?: boolean
+  internet_enabled?: boolean
+  uplink_mode?: 'none' | 'physical' | 'system'
+  uplink_if?: string
+  uplink_gateway?: string
+  migrate_host_ip?: boolean
   bridge_name?: string
   bridge_vlan_id?: number
   allow_promiscuous?: boolean
   allow_mac_change?: boolean
   allow_forged_transmits?: boolean
+  ipv6_security_enabled?: boolean
+  trusted_ipv6_prefixes?: string
   cidr?: string
   gateway_ip?: string
   dhcp_start?: string
@@ -59,9 +76,34 @@ export interface VpcSwitchPayload {
   bandwidth_up_mbps?: number
 }
 
+/** 交换机是否由面板提供 DHCP/NAT。 */
+export function isVpcSwitchManaged(item?: VpcSwitch | null): boolean {
+  return !!item && (!!item.is_system || !!item.dhcp_enabled)
+}
+
+/** 交换机运行模式标签。 */
+export function vpcSwitchModeLabel(item?: VpcSwitch | null): string {
+  if (!item) return '-'
+  if (item.is_system) return '系统基础网络'
+  if (item.dhcp_enabled) return '内置 DHCP/NAT'
+  if (item.uplink_if) return '物理直通'
+  return '空交换机'
+}
+
+/** 交换机下拉选项中的模式详情。 */
+export function vpcSwitchModeDetail(item: VpcSwitch): string {
+  if (item.is_system || item.dhcp_enabled) return `${vpcSwitchModeLabel(item)}：${item.cidr || '系统配置'}`
+  if (item.uplink_if) {
+    const vlan = item.bridge_vlan_id > 0 ? ` / VLAN ${item.bridge_vlan_id}` : ''
+    return `${vpcSwitchModeLabel(item)}：${item.uplink_if}${vlan}`
+  }
+  return '空交换机：独立纯二层'
+}
+
 /** VPC 流量/带宽配额 */
 export interface VpcQuota {
   username: string
+  internet_available: boolean
   max_traffic_down: number
   max_traffic_up: number
   allocated_traffic_down: number
@@ -88,7 +130,8 @@ export interface VpcSecurityGroupRule {
   id: number
   security_group_id: number
   direction: string // ingress / egress
-  protocol: string // tcp / udp / icmp / all
+  address_family: string // ipv4 / ipv6
+  protocol: string // tcp / udp / icmp / icmpv6 / all
   port_start: number
   port_end: number
   target_type: string
@@ -119,6 +162,8 @@ export interface VpcVMBinding {
   nic_model: string
   bandwidth_inbound_avg: number
   bandwidth_outbound_avg: number
+  allowed_ipv4_addresses: string
+  allowed_ipv6_addresses: string
 }
 
 /** 轻量云 VM 配额（来自绑定信息） */
@@ -181,6 +226,14 @@ export function updateVPCSwitch(id: number, data: VpcSwitchPayload) {
   return service.put<unknown, ApiResponse<unknown>>(`/vpc/switches/${id}`, data)
 }
 
+/** 异步重配置交换机上行链路和 DHCP/NAT 拓扑 */
+export function reconfigureVPCSwitch(id: number, data: VpcSwitchPayload) {
+  return service.post<unknown, ApiResponse<{ task_id: number; status: string }>>(
+    `/vpc/switches/${id}/reconfigure`,
+    data,
+  )
+}
+
 /** 删除交换机（force=true 时强制移除绑定 VM 的网卡） */
 export function deleteVPCSwitch(id: number, force = false) {
   return service.delete<unknown, ApiResponse<unknown>>(`/vpc/switches/${id}`, {
@@ -239,6 +292,7 @@ export function addVPCSecurityGroupRule(
   id: number,
   data: {
     direction: string
+    address_family: string
     protocol: string
     port_start: number
     port_end: number
@@ -248,6 +302,23 @@ export function addVPCSecurityGroupRule(
   },
 ) {
   return service.post<unknown, ApiResponse<unknown>>(`/vpc/security-groups/${id}/rules`, data)
+}
+
+/** 更新安全组规则 */
+export function updateVPCSecurityGroupRule(
+  id: number,
+  data: {
+    direction: string
+    address_family: string
+    protocol: string
+    port_start: number
+    port_end: number
+    target_type: string
+    target_value: string
+    remark: string
+  },
+) {
+  return service.put<unknown, ApiResponse<unknown>>(`/vpc/security-groups/rules/${id}`, data)
 }
 
 /** 删除安全组规则 */
@@ -276,7 +347,7 @@ export function switchVMSecurityGroup(name: string, securityGroupID: number) {
   )
 }
 
-// ==================== 多网口管理（仅管理员） ====================
+// ==================== 多网口管理（管理员全量；弹性云用户可自助管理本人虚拟机的附加网口） ====================
 
 /** 网口信息（绑定 + 交换机 + 安全组） */
 export interface VMInterfaceInfo {
@@ -293,9 +364,11 @@ export interface VMInterfacePayload {
   nic_model: string
   bandwidth_inbound_avg: number
   bandwidth_outbound_avg: number
+  allowed_ipv4_addresses?: string
+  allowed_ipv6_addresses?: string
 }
 
-/** 获取虚拟机网口列表（仅管理员） */
+/** 获取虚拟机网口列表（普通用户仅限本人虚拟机） */
 export function listVMInterfaces(name: string) {
   return service.get<unknown, ApiResponse<VMInterfaceInfo[]>>(
     `/vm/${encodeURIComponent(name)}/interfaces`,
@@ -303,7 +376,7 @@ export function listVMInterfaces(name: string) {
   )
 }
 
-/** 新增网口（仅管理员） */
+/** 新增网口（普通用户仅限本人虚拟机与本人交换机） */
 export function addVMInterface(name: string, data: VMInterfacePayload) {
   return service.post<unknown, ApiResponse<VMInterfaceInfo>>(
     `/vm/${encodeURIComponent(name)}/interfaces`,
@@ -311,7 +384,7 @@ export function addVMInterface(name: string, data: VMInterfacePayload) {
   )
 }
 
-/** 更新网口（仅管理员） */
+/** 更新网口（普通用户仅限本人虚拟机的附加网口） */
 export function updateVMInterface(name: string, order: number, data: VMInterfacePayload) {
   return service.put<unknown, ApiResponse<null>>(
     `/vm/${encodeURIComponent(name)}/interfaces/${order}`,
@@ -319,7 +392,7 @@ export function updateVMInterface(name: string, order: number, data: VMInterface
   )
 }
 
-/** 删除网口（仅管理员） */
+/** 删除网口（普通用户仅限本人虚拟机的附加网口） */
 export function removeVMInterface(name: string, order: number) {
   return service.delete<unknown, ApiResponse<null>>(
     `/vm/${encodeURIComponent(name)}/interfaces/${order}`,

@@ -26,7 +26,7 @@ export const shouldUseBIOSForI440FXWindows = (
 
 /** 推荐 Windows 引导类型 */
 export const getRecommendedWindowsBootType = (
-  form: Pick<VmFormModel, 'create_mode' | 'os_type' | 'machine_type'>,
+  form: VmFormModel,
   isEdit: boolean,
 ): string => (shouldUseBIOSForI440FXWindows(form, isEdit) ? 'bios' : 'uefi')
 

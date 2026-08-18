@@ -17,7 +17,6 @@ import (
 	"kvm_console/logger"
 	"kvm_console/model"
 	"kvm_console/service"
-	"kvm_console/service/storage/quota"
 	"kvm_console/taskqueue"
 	"kvm_console/utils"
 )
@@ -34,6 +33,7 @@ type SettingsResponse struct {
 	NetworkBackend                        string `json:"network_backend"`
 	OVSBridge                             string `json:"ovs_bridge"`
 	OVSUplink                             string `json:"ovs_uplink"`
+	ElasticCloudUplink                    string `json:"elastic_cloud_uplink"`
 	OVSDHCPStart                          string `json:"ovs_dhcp_start"`
 	OVSDHCPEnd                            string `json:"ovs_dhcp_end"`
 	SubnetPrefix                          string `json:"subnet_prefix"`
@@ -44,6 +44,15 @@ type SettingsResponse struct {
 	ExternalNIC                           string `json:"external_nic"`
 	MaxBurstInbound                       int    `json:"max_burst_inbound"`
 	MaxBurstOutbound                      int    `json:"max_burst_outbound"`
+	PortSecurityEnabled                   bool   `json:"port_security_enabled"`
+	PortSecurityTotalKpps                 int    `json:"port_security_total_kpps"`
+	PortSecurityTotalBurstKPackets        int    `json:"port_security_total_burst_kpackets"`
+	PortSecurityNeighborPPS               int    `json:"port_security_neighbor_pps"`
+	PortSecurityNeighborBurstPackets      int    `json:"port_security_neighbor_burst_packets"`
+	PortSecurityBroadcastPPS              int    `json:"port_security_broadcast_pps"`
+	PortSecurityBroadcastBurstPackets     int    `json:"port_security_broadcast_burst_packets"`
+	PortSecurityReconcileIntervalSeconds  int    `json:"port_security_reconcile_interval_seconds"`
+	PublicIPv6SyncIntervalSeconds         int    `json:"public_ipv6_sync_interval_seconds"`
 	RescueISO                             string `json:"rescue_iso"`
 	SpiceEnabledByDefault                 bool   `json:"spice_enabled_by_default"`
 	PublicBaseURL                         string `json:"public_base_url"`
@@ -61,15 +70,7 @@ type SettingsResponse struct {
 	SMTPTimeoutSeconds                    int    `json:"smtp_timeout_seconds"`
 	SMTPPasswordConfigured                bool   `json:"smtp_password_configured"`
 	SMTPConfigured                        bool   `json:"smtp_configured"`
-	DynamicMemorySchedulerEnabled         bool   `json:"dynamic_memory_scheduler_enabled"`
-	DynamicMemoryIntervalSeconds          int    `json:"dynamic_memory_interval_seconds"`
-	DynamicMemoryHostReserveMB            int    `json:"dynamic_memory_host_reserve_mb"`
-	DynamicMemoryHostReservePercent       int    `json:"dynamic_memory_host_reserve_percent"`
-	DynamicMemoryIncreaseThresholdPercent int    `json:"dynamic_memory_increase_threshold_percent"`
-	DynamicMemoryReclaimThresholdPercent  int    `json:"dynamic_memory_reclaim_threshold_percent"`
-	DynamicMemoryCooldownSeconds          int    `json:"dynamic_memory_cooldown_seconds"`
-	DynamicMemoryObservationHours         int    `json:"dynamic_memory_observation_hours"`
-	SchedulerEventRetentionHours          int    `json:"scheduler_event_retention_hours"`
+	SchedulerEventRetentionHours int `json:"scheduler_event_retention_hours"`
 	// 虚拟机磁盘 IOPS 默认限制
 	DefaultDiskIOPSTotal int `json:"default_disk_iops_total"` // 默认总 IOPS 限制（0 表示不限制）
 	DefaultDiskIOPSRead  int `json:"default_disk_iops_read"`  // 默认读 IOPS 限制（0 表示不限制）
@@ -89,8 +90,12 @@ type SettingsResponse struct {
 	RequestFilterEnabled                bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled          bool `json:"password_breach_check_enabled"`
 	ScheduledPasswordBreachCheckEnabled bool `json:"scheduled_password_breach_check_enabled"`
+	// 用户存储自动定时回收（默认开启，每天凌晨 2:00 执行）
+	ScheduledStorageTrimEnabled bool `json:"scheduled_storage_trim_enabled"`
 	// 硬件直通
 	HardwarePassthroughEnabled bool `json:"hardware_passthrough_enabled"`
+	// 安全组默认全放通（默认关闭，开启后新建安全组自动添加 IPv4/IPv6 全放通入站规则）
+	SecurityGroupDefaultAllowAll bool `json:"security_group_default_allow_all"`
 }
 
 // UpdateSettingsRequest 更新设置请求
@@ -104,6 +109,7 @@ type UpdateSettingsRequest struct {
 	NetworkBackend                        *string `json:"network_backend"`
 	OVSBridge                             *string `json:"ovs_bridge"`
 	OVSUplink                             *string `json:"ovs_uplink"`
+	ElasticCloudUplink                    *string `json:"elastic_cloud_uplink"`
 	OVSDHCPStart                          *string `json:"ovs_dhcp_start"`
 	OVSDHCPEnd                            *string `json:"ovs_dhcp_end"`
 	SubnetPrefix                          *string `json:"subnet_prefix"`
@@ -113,6 +119,14 @@ type UpdateSettingsRequest struct {
 	ExternalNIC                           *string `json:"external_nic"`
 	MaxBurstInbound                       *int    `json:"max_burst_inbound"`
 	MaxBurstOutbound                      *int    `json:"max_burst_outbound"`
+	PortSecurityTotalKpps                 *int    `json:"port_security_total_kpps"`
+	PortSecurityTotalBurstKPackets        *int    `json:"port_security_total_burst_kpackets"`
+	PortSecurityNeighborPPS               *int    `json:"port_security_neighbor_pps"`
+	PortSecurityNeighborBurstPackets      *int    `json:"port_security_neighbor_burst_packets"`
+	PortSecurityBroadcastPPS              *int    `json:"port_security_broadcast_pps"`
+	PortSecurityBroadcastBurstPackets     *int    `json:"port_security_broadcast_burst_packets"`
+	PortSecurityReconcileIntervalSeconds  *int    `json:"port_security_reconcile_interval_seconds"`
+	PublicIPv6SyncIntervalSeconds         *int    `json:"public_ipv6_sync_interval_seconds"`
 	RescueISO                             *string `json:"rescue_iso"`
 	SpiceEnabledByDefault                 *bool   `json:"spice_enabled_by_default"`
 	PublicBaseURL                         *string `json:"public_base_url"`
@@ -129,14 +143,6 @@ type UpdateSettingsRequest struct {
 	SMTPFromAddress                       *string `json:"smtp_from_address"`
 	SMTPSecurity                          *string `json:"smtp_security"`
 	SMTPTimeoutSeconds                    *int    `json:"smtp_timeout_seconds"`
-	DynamicMemorySchedulerEnabled         *bool   `json:"dynamic_memory_scheduler_enabled"`
-	DynamicMemoryIntervalSeconds          *int    `json:"dynamic_memory_interval_seconds"`
-	DynamicMemoryHostReserveMB            *int    `json:"dynamic_memory_host_reserve_mb"`
-	DynamicMemoryHostReservePercent       *int    `json:"dynamic_memory_host_reserve_percent"`
-	DynamicMemoryIncreaseThresholdPercent *int    `json:"dynamic_memory_increase_threshold_percent"`
-	DynamicMemoryReclaimThresholdPercent  *int    `json:"dynamic_memory_reclaim_threshold_percent"`
-	DynamicMemoryCooldownSeconds          *int    `json:"dynamic_memory_cooldown_seconds"`
-	DynamicMemoryObservationHours         *int    `json:"dynamic_memory_observation_hours"`
 	SchedulerEventRetentionHours          *int    `json:"scheduler_event_retention_hours"`
 	// 虚拟机磁盘 IOPS 默认限制
 	DefaultDiskIOPSTotal *int `json:"default_disk_iops_total"` // 默认总 IOPS 限制（0 表示不限制）
@@ -155,8 +161,12 @@ type UpdateSettingsRequest struct {
 	RequestFilterEnabled                *bool `json:"request_filter_enabled"`
 	PasswordBreachCheckEnabled          *bool `json:"password_breach_check_enabled"`
 	ScheduledPasswordBreachCheckEnabled *bool `json:"scheduled_password_breach_check_enabled"`
+	// 用户存储自动定时回收
+	ScheduledStorageTrimEnabled *bool `json:"scheduled_storage_trim_enabled"`
 	// 硬件直通
 	HardwarePassthroughEnabled *bool `json:"hardware_passthrough_enabled"`
+	// 安全组默认全放通
+	SecurityGroupDefaultAllowAll *bool `json:"security_group_default_allow_all"`
 }
 
 type TestSMTPRequest struct {
@@ -221,6 +231,7 @@ func GetSettings(c *gin.Context) {
 			NetworkBackend:                        cfg.NetworkBackend,
 			OVSBridge:                             cfg.OVSBridge,
 			OVSUplink:                             cfg.OVSUplink,
+			ElasticCloudUplink:                    cfg.ElasticCloudUplink,
 			OVSDHCPStart:                          cfg.OVSDHCPStart,
 			OVSDHCPEnd:                            cfg.OVSDHCPEnd,
 			SubnetPrefix:                          cfg.SubnetPrefix,
@@ -231,6 +242,15 @@ func GetSettings(c *gin.Context) {
 			ExternalNIC:                           cfg.ExternalNIC,
 			MaxBurstInbound:                       cfg.MaxBurstInbound,
 			MaxBurstOutbound:                      cfg.MaxBurstOutbound,
+			PortSecurityEnabled:                   cfg.PortSecurityEnabled,
+			PortSecurityTotalKpps:                 cfg.PortSecurityTotalKpps,
+			PortSecurityTotalBurstKPackets:        cfg.PortSecurityTotalBurstKPackets,
+			PortSecurityNeighborPPS:               cfg.PortSecurityNeighborPPS,
+			PortSecurityNeighborBurstPackets:      cfg.PortSecurityNeighborBurstPackets,
+			PortSecurityBroadcastPPS:              cfg.PortSecurityBroadcastPPS,
+			PortSecurityBroadcastBurstPackets:     cfg.PortSecurityBroadcastBurstPackets,
+			PortSecurityReconcileIntervalSeconds:  cfg.PortSecurityReconcileIntervalSeconds,
+			PublicIPv6SyncIntervalSeconds:         cfg.PublicIPv6SyncIntervalSeconds,
 			RescueISO:                             cfg.RescueISO,
 			SpiceEnabledByDefault:                 cfg.SpiceEnabledByDefault,
 			PublicBaseURL:                         cfg.PublicBaseURL,
@@ -248,14 +268,6 @@ func GetSettings(c *gin.Context) {
 			SMTPTimeoutSeconds:                    smtpView.TimeoutSeconds,
 			SMTPPasswordConfigured:                smtpView.PasswordConfigured,
 			SMTPConfigured:                        smtpView.Configured,
-			DynamicMemorySchedulerEnabled:         cfg.DynamicMemorySchedulerEnabled,
-			DynamicMemoryIntervalSeconds:          cfg.DynamicMemoryIntervalSeconds,
-			DynamicMemoryHostReserveMB:            cfg.DynamicMemoryHostReserveMB,
-			DynamicMemoryHostReservePercent:       cfg.DynamicMemoryHostReservePercent,
-			DynamicMemoryIncreaseThresholdPercent: cfg.DynamicMemoryIncreaseThresholdPercent,
-			DynamicMemoryReclaimThresholdPercent:  cfg.DynamicMemoryReclaimThresholdPercent,
-			DynamicMemoryCooldownSeconds:          cfg.DynamicMemoryCooldownSeconds,
-			DynamicMemoryObservationHours:         cfg.DynamicMemoryObservationHours,
 			SchedulerEventRetentionHours:          cfg.SchedulerEventRetentionHours,
 			DefaultDiskIOPSTotal:                  cfg.DefaultDiskIOPSTotal,
 			DefaultDiskIOPSRead:                   cfg.DefaultDiskIOPSRead,
@@ -270,7 +282,9 @@ func GetSettings(c *gin.Context) {
 			RequestFilterEnabled:                  cfg.RequestFilterEnabled,
 			PasswordBreachCheckEnabled:            cfg.PasswordBreachCheckEnabled,
 			ScheduledPasswordBreachCheckEnabled:   cfg.ScheduledPasswordBreachCheckEnabled,
+			ScheduledStorageTrimEnabled:           cfg.ScheduledStorageTrimEnabled,
 			HardwarePassthroughEnabled:            cfg.HardwarePassthroughEnabled,
+			SecurityGroupDefaultAllowAll:          cfg.SecurityGroupDefaultAllowAll,
 		},
 	})
 }
@@ -284,6 +298,31 @@ func UpdateSettings(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误"})
 		return
+	}
+	portSecuritySettingsChanged := req.PortSecurityTotalKpps != nil || req.PortSecurityTotalBurstKPackets != nil ||
+		req.PortSecurityNeighborPPS != nil || req.PortSecurityNeighborBurstPackets != nil ||
+		req.PortSecurityBroadcastPPS != nil || req.PortSecurityBroadcastBurstPackets != nil ||
+		req.PortSecurityReconcileIntervalSeconds != nil
+	if req.ElasticCloudUplink != nil {
+		uplink := strings.TrimSpace(*req.ElasticCloudUplink)
+		if uplink != "" {
+			interfaces, err := service.ListHostPhysicalInterfaces()
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "读取宿主机物理网卡失败: " + err.Error()})
+				return
+			}
+			valid := false
+			for _, item := range interfaces {
+				if item.Name == uplink && item.Physical && item.CanUseNAT {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "所选网卡当前不可作为弹性云互联网出口"})
+				return
+			}
+		}
 	}
 
 	maintenanceChanged := req.MaintenanceMode != nil && *req.MaintenanceMode != previousMaintenanceMode
@@ -335,6 +374,9 @@ func UpdateSettings(c *gin.Context) {
 	if req.OVSUplink != nil {
 		cfg.OVSUplink = strings.TrimSpace(*req.OVSUplink)
 	}
+	if req.ElasticCloudUplink != nil {
+		cfg.ElasticCloudUplink = strings.TrimSpace(*req.ElasticCloudUplink)
+	}
 	if req.OVSDHCPStart != nil {
 		cfg.OVSDHCPStart = strings.TrimSpace(*req.OVSDHCPStart)
 	}
@@ -377,6 +419,68 @@ func UpdateSettings(c *gin.Context) {
 			return
 		}
 		cfg.MaxBurstOutbound = *req.MaxBurstOutbound
+	}
+	if req.PortSecurityTotalKpps != nil {
+		if *req.PortSecurityTotalKpps < 1 || *req.PortSecurityTotalKpps > 1000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口总包速率需在 1 - 1000000 kpps 之间"})
+			return
+		}
+		cfg.PortSecurityTotalKpps = *req.PortSecurityTotalKpps
+	}
+	if req.PortSecurityTotalBurstKPackets != nil {
+		if *req.PortSecurityTotalBurstKPackets < 1 || *req.PortSecurityTotalBurstKPackets > 1000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口总包突发值需在 1 - 1000000 kpackets 之间"})
+			return
+		}
+		cfg.PortSecurityTotalBurstKPackets = *req.PortSecurityTotalBurstKPackets
+	}
+	if req.PortSecurityNeighborPPS != nil {
+		if *req.PortSecurityNeighborPPS < 1 || *req.PortSecurityNeighborPPS > 1000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "ARP/ND 速率需在 1 - 1000000 pps 之间"})
+			return
+		}
+		cfg.PortSecurityNeighborPPS = *req.PortSecurityNeighborPPS
+	}
+	if req.PortSecurityNeighborBurstPackets != nil {
+		if *req.PortSecurityNeighborBurstPackets < 1 || *req.PortSecurityNeighborBurstPackets > 2000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "ARP/ND 突发值需在 1 - 2000000 packets 之间"})
+			return
+		}
+		cfg.PortSecurityNeighborBurstPackets = *req.PortSecurityNeighborBurstPackets
+	}
+	if req.PortSecurityBroadcastPPS != nil {
+		if *req.PortSecurityBroadcastPPS < 1 || *req.PortSecurityBroadcastPPS > 1000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "广播/组播速率需在 1 - 1000000 pps 之间"})
+			return
+		}
+		cfg.PortSecurityBroadcastPPS = *req.PortSecurityBroadcastPPS
+	}
+	if req.PortSecurityBroadcastBurstPackets != nil {
+		if *req.PortSecurityBroadcastBurstPackets < 1 || *req.PortSecurityBroadcastBurstPackets > 2000000 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "广播/组播突发值需在 1 - 2000000 packets 之间"})
+			return
+		}
+		cfg.PortSecurityBroadcastBurstPackets = *req.PortSecurityBroadcastBurstPackets
+	}
+	if req.PortSecurityReconcileIntervalSeconds != nil {
+		if *req.PortSecurityReconcileIntervalSeconds < 10 || *req.PortSecurityReconcileIntervalSeconds > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口安全协调周期需在 10 - 3600 秒之间"})
+			return
+		}
+		cfg.PortSecurityReconcileIntervalSeconds = *req.PortSecurityReconcileIntervalSeconds
+	}
+	if req.PublicIPv6SyncIntervalSeconds != nil {
+		if *req.PublicIPv6SyncIntervalSeconds < 10 || *req.PublicIPv6SyncIntervalSeconds > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "公网 IPv6 前缀检测周期需在 10 - 3600 秒之间"})
+			return
+		}
+		cfg.PublicIPv6SyncIntervalSeconds = *req.PublicIPv6SyncIntervalSeconds
+	}
+	if portSecuritySettingsChanged && (cfg.PortSecurityTotalBurstKPackets*5 < cfg.PortSecurityTotalKpps*4 ||
+		cfg.PortSecurityNeighborBurstPackets*5 < cfg.PortSecurityNeighborPPS*4 ||
+		cfg.PortSecurityBroadcastBurstPackets*5 < cfg.PortSecurityBroadcastPPS*4) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "端口安全突发值至少应达到对应速率的 80%"})
+		return
 	}
 	if req.RescueISO != nil {
 		cfg.RescueISO = *req.RescueISO
@@ -447,58 +551,6 @@ func UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
-	if req.DynamicMemorySchedulerEnabled != nil {
-		cfg.DynamicMemorySchedulerEnabled = *req.DynamicMemorySchedulerEnabled
-	}
-	if req.DynamicMemoryIntervalSeconds != nil {
-		if *req.DynamicMemoryIntervalSeconds < 10 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "动态内存调度间隔不能小于 10 秒"})
-			return
-		}
-		cfg.DynamicMemoryIntervalSeconds = *req.DynamicMemoryIntervalSeconds
-	}
-	if req.DynamicMemoryHostReserveMB != nil {
-		if *req.DynamicMemoryHostReserveMB < 512 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "宿主机保留内存不能小于 512MB"})
-			return
-		}
-		cfg.DynamicMemoryHostReserveMB = *req.DynamicMemoryHostReserveMB
-	}
-	if req.DynamicMemoryHostReservePercent != nil {
-		if *req.DynamicMemoryHostReservePercent < 5 || *req.DynamicMemoryHostReservePercent > 80 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "宿主机保留比例需在 5% - 80% 之间"})
-			return
-		}
-		cfg.DynamicMemoryHostReservePercent = *req.DynamicMemoryHostReservePercent
-	}
-	if req.DynamicMemoryIncreaseThresholdPercent != nil {
-		if *req.DynamicMemoryIncreaseThresholdPercent < 5 || *req.DynamicMemoryIncreaseThresholdPercent > 50 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "增长触发阈值需在 5% - 50% 之间"})
-			return
-		}
-		cfg.DynamicMemoryIncreaseThresholdPercent = *req.DynamicMemoryIncreaseThresholdPercent
-	}
-	if req.DynamicMemoryReclaimThresholdPercent != nil {
-		if *req.DynamicMemoryReclaimThresholdPercent < 10 || *req.DynamicMemoryReclaimThresholdPercent > 90 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "回收触发阈值需在 10% - 90% 之间"})
-			return
-		}
-		cfg.DynamicMemoryReclaimThresholdPercent = *req.DynamicMemoryReclaimThresholdPercent
-	}
-	if req.DynamicMemoryCooldownSeconds != nil {
-		if *req.DynamicMemoryCooldownSeconds < 30 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "动态内存冷却时间不能小于 30 秒"})
-			return
-		}
-		cfg.DynamicMemoryCooldownSeconds = *req.DynamicMemoryCooldownSeconds
-	}
-	if req.DynamicMemoryObservationHours != nil {
-		if *req.DynamicMemoryObservationHours < 0 || *req.DynamicMemoryObservationHours > 168 {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "观察期需在 0 - 168 小时之间"})
-			return
-		}
-		cfg.DynamicMemoryObservationHours = *req.DynamicMemoryObservationHours
-	}
 	if req.SchedulerEventRetentionHours != nil {
 		if *req.SchedulerEventRetentionHours < 1 || *req.SchedulerEventRetentionHours > 2160 {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "调度事件保留时长需在 1 - 2160 小时之间"})
@@ -565,8 +617,14 @@ func UpdateSettings(c *gin.Context) {
 	if req.ScheduledPasswordBreachCheckEnabled != nil {
 		cfg.ScheduledPasswordBreachCheckEnabled = *req.ScheduledPasswordBreachCheckEnabled
 	}
+	if req.ScheduledStorageTrimEnabled != nil {
+		cfg.ScheduledStorageTrimEnabled = *req.ScheduledStorageTrimEnabled
+	}
 	if req.HardwarePassthroughEnabled != nil {
 		cfg.HardwarePassthroughEnabled = *req.HardwarePassthroughEnabled
+	}
+	if req.SecurityGroupDefaultAllowAll != nil {
+		cfg.SecurityGroupDefaultAllowAll = *req.SecurityGroupDefaultAllowAll
 	}
 
 	if cfg.AutoPortStart >= cfg.AutoPortEnd {
@@ -593,6 +651,9 @@ func UpdateSettings(c *gin.Context) {
 				logger.App.Warn("应用全局带宽限制失败", "component", "全局带宽", "error", err)
 			}
 		}()
+	}
+	if portSecuritySettingsChanged {
+		service.TriggerPortSecurityReconcile()
 	}
 
 	// 网络等待就绪检测设置变更后执行 systemctl 操作
@@ -703,7 +764,7 @@ func persistSettings(cfg *config.Config) []string {
 	settingsMap := cfg.ToSettingsMap()
 	var persistErrors []string
 	for key, value := range settingsMap {
-		if value == "" || (value == "0" && key != "dynamic_memory_observation_hours" && key != "spice_enabled_by_default") {
+		if value == "" || (value == "0" && key != "spice_enabled_by_default") {
 			_ = model.DeleteSetting(key)
 			continue
 		}
@@ -1005,16 +1066,23 @@ func ExportLogs(c *gin.Context) {
 
 // TrimUserStorage 执行用户存储回收（fstrim + fallocate --dig-holes）
 func TrimUserStorage(c *gin.Context) {
-	result, err := quota.TrimStorage()
+	createdBy := c.GetString("username")
+	if createdBy == "" {
+		createdBy = "admin"
+	}
+	task, reused, err := service.SubmitStorageTrim(createdBy, "管理员手动执行")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "存储回收失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "提交存储回收任务失败: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
-		"message": "存储回收完成",
-		"data":    result,
+	message := "存储回收任务已提交"
+	if reused {
+		message = "已有存储回收任务正在执行，已返回现有任务"
+	}
+	c.JSON(http.StatusAccepted, gin.H{
+		"code": 202, "message": message,
+		"data": gin.H{"task": task, "reused": reused},
 	})
 }
 

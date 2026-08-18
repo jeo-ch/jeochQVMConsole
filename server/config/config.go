@@ -64,6 +64,8 @@ type Config struct {
 	OVSBridge string `json:"ovs_bridge"`
 	// OVS NAT 出口网卡，留空自动检测默认路由
 	OVSUplink string `json:"ovs_uplink"`
+	// 弹性云用户托管 DHCP/NAT 交换机统一使用的物理上联网卡；留空时用户交换机保持纯二层
+	ElasticCloudUplink string `json:"elastic_cloud_uplink"`
 	// OVS DHCP 起始地址
 	OVSDHCPStart string `json:"ovs_dhcp_start"`
 	// OVS DHCP 结束地址
@@ -132,13 +134,24 @@ type Config struct {
 	DynamicMemoryReclaimThresholdPercent  int  `json:"dynamic_memory_reclaim_threshold_percent"`
 	DynamicMemoryCooldownSeconds          int  `json:"dynamic_memory_cooldown_seconds"`
 	DynamicMemoryObservationHours         int  `json:"dynamic_memory_observation_hours"`
-	SchedulerEventRetentionHours          int  `json:"scheduler_event_retention_hours"`
+	SchedulerEventRetentionHours int `json:"scheduler_event_retention_hours"`
 	// VPC 逻辑交换机配置
 	VPCSubnetPrefix string `json:"vpc_subnet_prefix"`
 	VPCVLANStart    int    `json:"vpc_vlan_start"`
 	VPCVLANEnd      int    `json:"vpc_vlan_end"`
 	VPCDNS          string `json:"vpc_dns"`
 	VPCACLTable     string `json:"vpc_acl_table"`
+	// OVS 端口安全配置（默认关闭，开启前由预检确认运行环境与端口身份资料）
+	PortSecurityEnabled                  bool `json:"port_security_enabled"`
+	PortSecurityTotalKpps                int  `json:"port_security_total_kpps"`
+	PortSecurityTotalBurstKPackets       int  `json:"port_security_total_burst_kpackets"`
+	PortSecurityNeighborPPS              int  `json:"port_security_neighbor_pps"`
+	PortSecurityNeighborBurstPackets     int  `json:"port_security_neighbor_burst_packets"`
+	PortSecurityBroadcastPPS             int  `json:"port_security_broadcast_pps"`
+	PortSecurityBroadcastBurstPackets    int  `json:"port_security_broadcast_burst_packets"`
+	PortSecurityReconcileIntervalSeconds int  `json:"port_security_reconcile_interval_seconds"`
+	// 动态公网 IPv6 前缀检测周期（秒）
+	PublicIPv6SyncIntervalSeconds int `json:"public_ipv6_sync_interval_seconds"`
 	// 网络抓包配置
 	NetworkCaptureDir            string `json:"network_capture_dir"`
 	NetworkCaptureDefaultSeconds int    `json:"network_capture_default_seconds"`
@@ -177,8 +190,12 @@ type Config struct {
 	PasswordBreachCheckEnabled bool `json:"password_breach_check_enabled"`
 	// 定时泄露密码检测开关（默认开启，每天本地时间 00:00 执行）
 	ScheduledPasswordBreachCheckEnabled bool `json:"scheduled_password_breach_check_enabled"`
+	// 用户存储自动定时回收开关（默认开启，每天本地时间 02:00 执行 fstrim + fallocate --dig-holes）
+	ScheduledStorageTrimEnabled bool `json:"scheduled_storage_trim_enabled"`
 	// 硬件直通开关（默认关闭，开启后启用 IOMMU 和 vfio-pci 支持）
 	HardwarePassthroughEnabled bool `json:"hardware_passthrough_enabled"`
+	// 安全组默认全放通开关（默认关闭，开启后新建安全组自动添加 IPv4/IPv6 全放通入站规则）
+	SecurityGroupDefaultAllowAll bool `json:"security_group_default_allow_all"`
 }
 
 // GlobalConfig 全局配置实例
@@ -236,6 +253,7 @@ func Init() {
 		NetworkBackend:                        getEnv("KVM_NETWORK_BACKEND", "ovs"),
 		OVSBridge:                             getEnv("KVM_OVS_BRIDGE", "br-ovs"),
 		OVSUplink:                             getEnv("KVM_OVS_UPLINK", ""),
+		ElasticCloudUplink:                    getEnv("KVM_ELASTIC_CLOUD_UPLINK", ""),
 		OVSDHCPStart:                          getEnv("KVM_OVS_DHCP_START", ""),
 		OVSDHCPEnd:                            getEnv("KVM_OVS_DHCP_END", ""),
 		SubnetPrefix:                          getEnv("KVM_SUBNET_PREFIX", "192.168.122"),
@@ -285,6 +303,15 @@ func Init() {
 		VPCVLANEnd:                            getEnvInt("KVM_VPC_VLAN_END", 4094),
 		VPCDNS:                                getEnv("KVM_VPC_DNS", "223.5.5.5,223.6.6.6"),
 		VPCACLTable:                           getEnv("KVM_VPC_ACL_TABLE", "kvm_console_vpc_acl"),
+		PortSecurityEnabled:                   getEnvBool("KVM_PORT_SECURITY_ENABLED", false),
+		PortSecurityTotalKpps:                 getEnvInt("KVM_PORT_SECURITY_TOTAL_KPPS", 50),
+		PortSecurityTotalBurstKPackets:        getEnvInt("KVM_PORT_SECURITY_TOTAL_BURST_KPACKETS", 40),
+		PortSecurityNeighborPPS:               getEnvInt("KVM_PORT_SECURITY_NEIGHBOR_PPS", 200),
+		PortSecurityNeighborBurstPackets:      getEnvInt("KVM_PORT_SECURITY_NEIGHBOR_BURST_PACKETS", 400),
+		PortSecurityBroadcastPPS:              getEnvInt("KVM_PORT_SECURITY_BROADCAST_PPS", 1000),
+		PortSecurityBroadcastBurstPackets:     getEnvInt("KVM_PORT_SECURITY_BROADCAST_BURST_PACKETS", 2000),
+		PortSecurityReconcileIntervalSeconds:  getEnvInt("KVM_PORT_SECURITY_RECONCILE_INTERVAL_SECONDS", 60),
+		PublicIPv6SyncIntervalSeconds:         getEnvInt("KVM_PUBLIC_IPV6_SYNC_INTERVAL_SECONDS", 60),
 		NetworkCaptureDir:                     getEnv("KVM_NETWORK_CAPTURE_DIR", "/var/lib/kvm-console/captures"),
 		NetworkCaptureDefaultSeconds:          getEnvInt("KVM_NETWORK_CAPTURE_DEFAULT_SECONDS", 30),
 		NetworkCaptureMaxSeconds:              getEnvInt("KVM_NETWORK_CAPTURE_MAX_SECONDS", 120),
@@ -310,7 +337,9 @@ func Init() {
 		SessionFingerprintEnabled:             getEnvBool("KVM_SESSION_FINGERPRINT_ENABLED", true),
 		PasswordBreachCheckEnabled:            getEnvBool("KVM_PASSWORD_BREACH_CHECK_ENABLED", true),
 		ScheduledPasswordBreachCheckEnabled:   getEnvBool("KVM_SCHEDULED_PASSWORD_BREACH_CHECK_ENABLED", true),
+		ScheduledStorageTrimEnabled:           getEnvBool("KVM_SCHEDULED_STORAGE_TRIM_ENABLED", true),
 		HardwarePassthroughEnabled:            getEnvBool("KVM_HARDWARE_PASSTHROUGH_ENABLED", false),
+		SecurityGroupDefaultAllowAll:          getEnvBool("KVM_SECURITY_GROUP_DEFAULT_ALLOW_ALL", false),
 		CORSAllowedOrigins:                    getEnv("KVM_CORS_ALLOWED_ORIGINS", ""),
 	}
 	// 解析可信代理列表
@@ -530,6 +559,15 @@ var PersistableKeys = []string{
 	"vpc_vlan_end",
 	"vpc_dns",
 	"vpc_acl_table",
+	"port_security_enabled",
+	"port_security_total_kpps",
+	"port_security_total_burst_kpackets",
+	"port_security_neighbor_pps",
+	"port_security_neighbor_burst_packets",
+	"port_security_broadcast_pps",
+	"port_security_broadcast_burst_packets",
+	"port_security_reconcile_interval_seconds",
+	"public_ipv6_sync_interval_seconds",
 	"default_disk_iops_total",
 	"default_disk_iops_read",
 	"default_disk_iops_write",
@@ -550,8 +588,10 @@ var PersistableKeys = []string{
 	"request_filter_enabled",
 	"password_breach_check_enabled",
 	"scheduled_password_breach_check_enabled",
+	"scheduled_storage_trim_enabled",
 	"igpu_passthrough_enabled",
 	"hardware_passthrough_enabled",
+	"security_group_default_allow_all",
 }
 
 // keyToEnvVar 配置项到环境变量的映射
@@ -566,6 +606,7 @@ var keyToEnvVar = map[string]string{
 	"network_backend":           "KVM_NETWORK_BACKEND",
 	"ovs_bridge":                "KVM_OVS_BRIDGE",
 	"ovs_uplink":                "KVM_OVS_UPLINK",
+	"elastic_cloud_uplink":      "KVM_ELASTIC_CLOUD_UPLINK",
 	"ovs_dhcp_start":            "KVM_OVS_DHCP_START",
 	"ovs_dhcp_end":              "KVM_OVS_DHCP_END",
 	"subnet_prefix":             "KVM_SUBNET_PREFIX",
@@ -612,6 +653,15 @@ var keyToEnvVar = map[string]string{
 	"vpc_vlan_end":                              "KVM_VPC_VLAN_END",
 	"vpc_dns":                                   "KVM_VPC_DNS",
 	"vpc_acl_table":                             "KVM_VPC_ACL_TABLE",
+	"port_security_enabled":                     "KVM_PORT_SECURITY_ENABLED",
+	"port_security_total_kpps":                  "KVM_PORT_SECURITY_TOTAL_KPPS",
+	"port_security_total_burst_kpackets":        "KVM_PORT_SECURITY_TOTAL_BURST_KPACKETS",
+	"port_security_neighbor_pps":                "KVM_PORT_SECURITY_NEIGHBOR_PPS",
+	"port_security_neighbor_burst_packets":      "KVM_PORT_SECURITY_NEIGHBOR_BURST_PACKETS",
+	"port_security_broadcast_pps":               "KVM_PORT_SECURITY_BROADCAST_PPS",
+	"port_security_broadcast_burst_packets":     "KVM_PORT_SECURITY_BROADCAST_BURST_PACKETS",
+	"port_security_reconcile_interval_seconds":  "KVM_PORT_SECURITY_RECONCILE_INTERVAL_SECONDS",
+	"public_ipv6_sync_interval_seconds":         "KVM_PUBLIC_IPV6_SYNC_INTERVAL_SECONDS",
 	"default_disk_iops_total":                   "KVM_DEFAULT_DISK_IOPS_TOTAL",
 	"default_disk_iops_read":                    "KVM_DEFAULT_DISK_IOPS_READ",
 	"default_disk_iops_write":                   "KVM_DEFAULT_DISK_IOPS_WRITE",
@@ -632,8 +682,10 @@ var keyToEnvVar = map[string]string{
 	"request_filter_enabled":                    "KVM_REQUEST_FILTER_ENABLED",
 	"password_breach_check_enabled":             "KVM_PASSWORD_BREACH_CHECK_ENABLED",
 	"scheduled_password_breach_check_enabled":   "KVM_SCHEDULED_PASSWORD_BREACH_CHECK_ENABLED",
+	"scheduled_storage_trim_enabled":            "KVM_SCHEDULED_STORAGE_TRIM_ENABLED",
 	"igpu_passthrough_enabled":                  "KVM_IGPU_PASSTHROUGH_ENABLED",
 	"hardware_passthrough_enabled":              "KVM_HARDWARE_PASSTHROUGH_ENABLED",
+	"security_group_default_allow_all":          "KVM_SECURITY_GROUP_DEFAULT_ALLOW_ALL",
 }
 
 // LoadFromDB 从数据库加载持久化的设置覆盖当前配置
@@ -671,6 +723,8 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			c.OVSBridge = value
 		case "ovs_uplink":
 			c.OVSUplink = value
+		case "elastic_cloud_uplink":
+			c.ElasticCloudUplink = value
 		case "ovs_dhcp_start":
 			c.OVSDHCPStart = value
 		case "ovs_dhcp_end":
@@ -807,6 +861,42 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			c.VPCDNS = value
 		case "vpc_acl_table":
 			c.VPCACLTable = value
+		case "port_security_enabled":
+			if v, err := strconv.ParseBool(value); err == nil {
+				c.PortSecurityEnabled = v
+			}
+		case "port_security_total_kpps":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityTotalKpps = v
+			}
+		case "port_security_total_burst_kpackets":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityTotalBurstKPackets = v
+			}
+		case "port_security_neighbor_pps":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityNeighborPPS = v
+			}
+		case "port_security_neighbor_burst_packets":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityNeighborBurstPackets = v
+			}
+		case "port_security_broadcast_pps":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityBroadcastPPS = v
+			}
+		case "port_security_broadcast_burst_packets":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityBroadcastBurstPackets = v
+			}
+		case "port_security_reconcile_interval_seconds":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PortSecurityReconcileIntervalSeconds = v
+			}
+		case "public_ipv6_sync_interval_seconds":
+			if v, err := strconv.Atoi(value); err == nil {
+				c.PublicIPv6SyncIntervalSeconds = v
+			}
 		case "default_disk_iops_total":
 			if v, err := strconv.Atoi(value); err == nil {
 				c.DefaultDiskIOPSTotal = v
@@ -871,8 +961,12 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 			c.PasswordBreachCheckEnabled = value != "false"
 		case "scheduled_password_breach_check_enabled":
 			c.ScheduledPasswordBreachCheckEnabled = value != "false"
+		case "scheduled_storage_trim_enabled":
+			c.ScheduledStorageTrimEnabled = value != "false"
 		case "hardware_passthrough_enabled":
 			c.HardwarePassthroughEnabled = value == "true"
+		case "security_group_default_allow_all":
+			c.SecurityGroupDefaultAllowAll = value == "true"
 		case "api_max_body_size_mb":
 			if n, err := strconv.Atoi(value); err == nil && n > 0 {
 				c.APIMaxBodySizeMB = n
@@ -896,6 +990,7 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"network_backend":           c.NetworkBackend,
 		"ovs_bridge":                c.OVSBridge,
 		"ovs_uplink":                c.OVSUplink,
+		"elastic_cloud_uplink":      c.ElasticCloudUplink,
 		"ovs_dhcp_start":            c.OVSDHCPStart,
 		"ovs_dhcp_end":              c.OVSDHCPEnd,
 		"subnet_prefix":             c.SubnetPrefix,
@@ -940,6 +1035,15 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"vpc_vlan_end":                              strconv.Itoa(c.VPCVLANEnd),
 		"vpc_dns":                                   c.VPCDNS,
 		"vpc_acl_table":                             c.VPCACLTable,
+		"port_security_enabled":                     strconv.FormatBool(c.PortSecurityEnabled),
+		"port_security_total_kpps":                  strconv.Itoa(c.PortSecurityTotalKpps),
+		"port_security_total_burst_kpackets":        strconv.Itoa(c.PortSecurityTotalBurstKPackets),
+		"port_security_neighbor_pps":                strconv.Itoa(c.PortSecurityNeighborPPS),
+		"port_security_neighbor_burst_packets":      strconv.Itoa(c.PortSecurityNeighborBurstPackets),
+		"port_security_broadcast_pps":               strconv.Itoa(c.PortSecurityBroadcastPPS),
+		"port_security_broadcast_burst_packets":     strconv.Itoa(c.PortSecurityBroadcastBurstPackets),
+		"port_security_reconcile_interval_seconds":  strconv.Itoa(c.PortSecurityReconcileIntervalSeconds),
+		"public_ipv6_sync_interval_seconds":         strconv.Itoa(c.PublicIPv6SyncIntervalSeconds),
 		"default_disk_iops_total":                   strconv.Itoa(c.DefaultDiskIOPSTotal),
 		"default_disk_iops_read":                    strconv.Itoa(c.DefaultDiskIOPSRead),
 		"default_disk_iops_write":                   strconv.Itoa(c.DefaultDiskIOPSWrite),
@@ -960,7 +1064,9 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"request_filter_enabled":                    strconv.FormatBool(c.RequestFilterEnabled),
 		"password_breach_check_enabled":             strconv.FormatBool(c.PasswordBreachCheckEnabled),
 		"scheduled_password_breach_check_enabled":   strconv.FormatBool(c.ScheduledPasswordBreachCheckEnabled),
+		"scheduled_storage_trim_enabled":            strconv.FormatBool(c.ScheduledStorageTrimEnabled),
 		"hardware_passthrough_enabled":              strconv.FormatBool(c.HardwarePassthroughEnabled),
+		"security_group_default_allow_all":          strconv.FormatBool(c.SecurityGroupDefaultAllowAll),
 	}
 }
 

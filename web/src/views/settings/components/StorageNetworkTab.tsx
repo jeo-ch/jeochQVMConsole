@@ -1,16 +1,48 @@
 /**
  * 存储与网络 Tab：存储路径 / 网络设置 / 全局带宽限制 / 默认磁盘 IOPS
  */
-import { useState } from 'react'
-import { Banner, Button, Input, Toast } from '@douyinfe/semi-ui'
-import { IconBranch, IconFolder, IconPulse, IconSetting } from '@douyinfe/semi-icons'
+import { useEffect, useMemo, useState } from 'react'
+import { Banner, Button, Input, Select, Toast } from '@douyinfe/semi-ui'
+import { IconBranch, IconFolder, IconPulse, IconSafeStroked, IconSetting } from '@douyinfe/semi-icons'
 import { getUserStorageISOPath } from '@/api/settings'
+import { getHostInterfaces, type HostInterface } from '@/api/network'
 import { SectionHead, SettingRow } from './SettingRow'
 import NumField from './NumField'
 import type { SettingsTabProps } from '../types'
 
 export default function StorageNetworkTab({ form, patch }: SettingsTabProps) {
   const [isoPathLoading, setIsoPathLoading] = useState(false)
+  const [hostInterfaces, setHostInterfaces] = useState<HostInterface[]>([])
+  const [hostInterfacesLoading, setHostInterfacesLoading] = useState(false)
+
+  useEffect(() => {
+    setHostInterfacesLoading(true)
+    getHostInterfaces()
+      .then((res) => setHostInterfaces(res.data || []))
+      .catch(() => setHostInterfaces([]))
+      .finally(() => setHostInterfacesLoading(false))
+  }, [])
+
+  const elasticCloudUplinkOptions = useMemo(() => {
+    const options = hostInterfaces
+      .filter((item) => item.physical !== false && item.can_use_nat !== false)
+      .map((item) => {
+        const detail = [
+          item.state,
+          item.effective_l3_if && item.effective_l3_if !== item.name ? `经 ${item.effective_l3_if}` : '',
+          item.gateway ? `网关 ${item.gateway}` : '未检测到网关',
+          item.nat_switch_count ? `${item.nat_switch_count} 个托管交换机` : '',
+        ].filter(Boolean).join(' · ')
+        return { value: item.name, label: `${item.name}${detail ? `（${detail}）` : ''}` }
+      })
+    if (form.elastic_cloud_uplink && !options.some((item) => item.value === form.elastic_cloud_uplink)) {
+      options.unshift({
+        value: form.elastic_cloud_uplink,
+        label: `${form.elastic_cloud_uplink}（当前配置，网卡暂不可用）`,
+      })
+    }
+    return options
+  }, [form.elastic_cloud_uplink, hostInterfaces])
 
   // 一键替换 ISO 存放位置为当前用户存储 ISO 目录
   const handleUseUserStorageISO = async () => {
@@ -143,6 +175,22 @@ export default function StorageNetworkTab({ form, patch }: SettingsTabProps) {
         />
       </SettingRow>
 
+      <SettingRow
+        label="弹性云互联网出口"
+        tip="弹性云用户开启互联网后，交换机将通过该物理网卡启用托管 DHCP/NAT；留空时用户默认交换机为纯二层 | 环境变量: KVM_ELASTIC_CLOUD_UPLINK"
+      >
+        <Select
+          style={{ width: '100%' }}
+          value={form.elastic_cloud_uplink || undefined}
+          placeholder="不提供互联网，默认交换机保持纯二层"
+          showClear
+          filter
+          loading={hostInterfacesLoading}
+          optionList={elasticCloudUplinkOptions}
+          onChange={(value) => patch({ elastic_cloud_uplink: String(value || '') })}
+        />
+      </SettingRow>
+
       <SettingRow label="网段前缀" tip="环境变量: KVM_SUBNET_PREFIX">
         <Input
           value={form.subnet_prefix}
@@ -191,6 +239,98 @@ export default function StorageNetworkTab({ form, patch }: SettingsTabProps) {
           placeholder="留空自动检测，也可手动填写固定公网 IP"
         />
       </SettingRow>
+
+      <SettingRow
+        label="公网 IPv6 前缀检测"
+        tip="定期检查上联网卡的动态公网 IPv6 前缀；前缀变化后保留每个 VM 的主机位并自动重建 Proxy NDP 与 /128 路由 | 环境变量: KVM_PUBLIC_IPV6_SYNC_INTERVAL_SECONDS"
+      >
+        <NumField
+          label="检测周期"
+          suffix="秒"
+          value={form.public_ipv6_sync_interval_seconds}
+          onChange={(v) => patch({ public_ipv6_sync_interval_seconds: v })}
+          min={10}
+          max={3600}
+        />
+      </SettingRow>
+
+      <SectionHead icon={<IconSafeStroked />} title="端口安全参数" />
+
+      {!form.port_security_enabled ? (
+        <Banner
+          type="info"
+          closeIcon={null}
+          className="stg-banner"
+          description="端口安全总开关当前关闭。请在“网络中心 → 网络概览”完成预检并启用；关闭时这些高级阈值不参与校验。"
+        />
+      ) : (
+        <>
+          <Banner
+            type="warning"
+            closeIcon={null}
+            className="stg-banner"
+            description="保存后会触发后台协调。总包速率使用 OVS Interface packet policing，ARP/ND 与广播/组播使用独立 packet meter。"
+          />
+          <div className="stg-field-grid">
+            <NumField
+              label="端口总包速率"
+              suffix="kpps"
+              value={form.port_security_total_kpps}
+              onChange={(v) => patch({ port_security_total_kpps: v })}
+              min={1}
+              max={1000000}
+            />
+            <NumField
+              label="端口总包突发"
+              suffix="kpackets"
+              value={form.port_security_total_burst_kpackets}
+              onChange={(v) => patch({ port_security_total_burst_kpackets: v })}
+              min={1}
+              max={1000000}
+            />
+            <NumField
+              label="ARP / ND 速率"
+              suffix="pps"
+              value={form.port_security_neighbor_pps}
+              onChange={(v) => patch({ port_security_neighbor_pps: v })}
+              min={1}
+              max={1000000}
+            />
+            <NumField
+              label="ARP / ND 突发"
+              suffix="packets"
+              value={form.port_security_neighbor_burst_packets}
+              onChange={(v) => patch({ port_security_neighbor_burst_packets: v })}
+              min={1}
+              max={2000000}
+            />
+            <NumField
+              label="广播 / 组播速率"
+              suffix="pps"
+              value={form.port_security_broadcast_pps}
+              onChange={(v) => patch({ port_security_broadcast_pps: v })}
+              min={1}
+              max={1000000}
+            />
+            <NumField
+              label="广播 / 组播突发"
+              suffix="packets"
+              value={form.port_security_broadcast_burst_packets}
+              onChange={(v) => patch({ port_security_broadcast_burst_packets: v })}
+              min={1}
+              max={2000000}
+            />
+            <NumField
+              label="全量协调周期"
+              suffix="秒"
+              value={form.port_security_reconcile_interval_seconds}
+              onChange={(v) => patch({ port_security_reconcile_interval_seconds: v })}
+              min={10}
+              max={3600}
+            />
+          </div>
+        </>
+      )}
 
       <SectionHead icon={<IconPulse />} title="全局带宽限制" />
 

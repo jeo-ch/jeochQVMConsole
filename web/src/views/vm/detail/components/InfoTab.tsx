@@ -1,13 +1,13 @@
 /**
  * 系统信息 Tab（详情页默认标签）
  * - 基本配置 / 登录凭证 / 网络与连接 / 高级设置 / 磁盘 IOPS 限制
- * - 挂载后自加载：PCIe 热插槽用量、磁盘 IOPS 列表、全部网口 IP
+ * - 由详情 SSE 持续同步：PCIe 热插槽用量、磁盘 IOPS 列表、全部网口 IP
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Spin, Tag, Toast, Tooltip } from '@douyinfe/semi-ui'
-import { IconCopy, IconEyeClosedSolid, IconEyeOpened, IconRefresh } from '@douyinfe/semi-icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Popover, Spin, Tag, Toast, Tooltip } from '@douyinfe/semi-ui'
+import { IconBolt, IconCopy, IconEyeClosedSolid, IconEyeOpened, IconInfoCircle, IconRefresh } from '@douyinfe/semi-icons'
 import type { VmDetailInfo, VmDiskItem, VmNetworkIPAddress, VmNetworkInterface, VmPCIEInfo } from '@/api/vm'
-import { getDiskList, getVmPCIEInfo, getVMNetworkStatus } from '@/api/vm'
+import { getDiskList, getVmPCIEInfo, getVMNetworkStatus, updateVm } from '@/api/vm'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import {
   canResetVmPassword,
@@ -20,10 +20,14 @@ import {
 interface InfoTabProps {
   vm: VmDetailInfo | null
   isLightweight: boolean
+  live: boolean
+  liveTick: number
   onResetPassword: () => void
   onReinstall: () => void
   onRemark: () => void
 }
+
+const GUEST_AGENT_DOC_URL = 'https://qvmcdocs.xiaozhuhouses.asia/docs/install/category/%E8%BF%9B%E9%98%B6%E5%86%85%E5%AE%B9'
 
 /** 信息行 */
 function Row({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
@@ -35,81 +39,169 @@ function Row({ label, children }: { label: React.ReactNode; children: React.Reac
   )
 }
 
-export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstall, onRemark }: InfoTabProps) {
+/** IP 为空时展示可点击的原因详情。 */
+function EmptyIPDetail({ status }: { status: VmDetailInfo['guest_agent_status'] }) {
+  if (status?.connected) {
+    return <div className="qvm-ip-detail">QEMU Guest Agent 已连接但未获取到虚拟机 IP，可能是您上游网关问题或网络链路存在异常。</div>
+  }
+
+  if (status?.configured) {
+    return (
+      <div className="qvm-ip-detail">
+        <div>QEMU Guest Agent 已配置但未连接，请检查虚拟机内的来宾代理服务。</div>
+        <a
+          className="qvm-ip-detail-link"
+          href={GUEST_AGENT_DOC_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          查看安装文档
+        </a>
+      </div>
+    )
+  }
+
+  if (status) {
+    return <div className="qvm-ip-detail">QEMU Guest Agent 未配置，当前未能读取虚拟机内 IP；可在此处点击立即启用。</div>
+  }
+
+  return <div className="qvm-ip-detail">暂时未获取到 QEMU Guest Agent 状态，请稍后刷新详情。</div>
+}
+
+export default function InfoTab({
+  vm,
+  isLightweight,
+  live,
+  liveTick,
+  onResetPassword,
+  onReinstall,
+  onRemark,
+}: InfoTabProps) {
   const [pcieInfo, setPcieInfo] = useState<VmPCIEInfo | null>(null)
   const [disks, setDisks] = useState<VmDiskItem[]>([])
   const [disksLoading, setDisksLoading] = useState(false)
   const [interfaceIPs, setInterfaceIPs] = useState<VmNetworkIPAddress[]>([])
+  const [networkInterfaceCount, setNetworkInterfaceCount] = useState(0)
   const [credentialPasswordVisible, setCredentialPasswordVisible] = useState(false)
+  const [guestAgentEnableLoading, setGuestAgentEnableLoading] = useState(false)
+  const [guestAgentEnableRequested, setGuestAgentEnableRequested] = useState(false)
+  const supplementalRequestRef = useRef(0)
+  const supplementalLoadedRef = useRef(false)
 
   const vmName = vm?.name || ''
   const canResetPassword = canResetVmPassword(vm)
+  const vmStatusKey = (vm?.status || '').trim().toLowerCase()
+  const vmIsPoweredOff = vmStatusKey === 'shut off' || vmStatusKey === 'shutoff' || vmStatusKey === 'shutdown'
+
+  // 成功写入持久化配置后，先在当前页面反映已配置状态，等待 SSE 返回真实状态。
+  const guestAgentStatus = useMemo(() => {
+    const status = vm?.guest_agent_status
+    if (!status || !guestAgentEnableRequested || status.configured) return status
+    return { ...status, configured: true }
+  }, [vm?.guest_agent_status, guestAgentEnableRequested])
+
+  useEffect(() => {
+    if (vm?.guest_agent_status?.configured) {
+      setGuestAgentEnableRequested(false)
+    }
+  }, [vm?.guest_agent_status?.configured])
+
+  useEffect(() => {
+    setGuestAgentEnableRequested(false)
+  }, [vmName])
+
+  // 内存策略标签
+  const memoryBackendText = vm?.memory_backend === 'virtio_mem' ? 'virtio-mem 弹性' : 'Balloon 动态'
+  const memoryTooltip =
+    vm?.memory_backend === 'virtio_mem'
+      ? 'Windows 弹性内存基于 virtio-mem：主内存为规格值，基础内存自动计算；运行后使用率超过 70% 每次扩容 1GB，低于 50% 时按目标使用率缩容。'
+      : '系统会根据宿主机资源和面板调度策略动态调整：宿主机内存紧张时可能回收，但最低不低于设定内存的 50%；资源充足时可额外调度约 30% 内存应对突发负载。'
 
   // 切换虚拟机或凭据更新后，密码恢复为隐藏状态。
   useEffect(() => {
     setCredentialPasswordVisible(false)
   }, [vmName, vm?.credential?.password])
 
-  // 加载 PCIe 热插槽信息
+  // SSE 每次推送后同步详情页附属配置；后台更新不切换 loading，避免卡片闪烁。
   useEffect(() => {
-    if (!vmName) return
-    let cancelled = false
-    getVmPCIEInfo(vmName)
-      .then((res) => !cancelled && setPcieInfo(res.data || null))
-      .catch(() => !cancelled && setPcieInfo(null))
-    return () => {
-      cancelled = true
-    }
-  }, [vmName])
+    if (!vmName || !live) return
+    const requestId = ++supplementalRequestRef.current
+    const showLoading = !supplementalLoadedRef.current && !isLightweight
+    if (showLoading) setDisksLoading(true)
 
-  // 加载磁盘 IOPS 列表
-  const loadDisks = useCallback(async () => {
-    if (!vmName || isLightweight) return
-    setDisksLoading(true)
+    const tasks: Promise<void>[] = [
+      getVmPCIEInfo(vmName)
+        .then((res) => {
+          if (requestId === supplementalRequestRef.current) setPcieInfo(res.data || null)
+        })
+        .catch(() => {
+          if (requestId === supplementalRequestRef.current && showLoading) setPcieInfo(null)
+        }),
+      getVMNetworkStatus(vmName)
+        .then((res) => {
+          if (requestId !== supplementalRequestRef.current) return
+          const ifaces: VmNetworkInterface[] = res.data?.interfaces || []
+          setNetworkInterfaceCount(ifaces.length)
+          const seen = new Set<string>()
+          setInterfaceIPs(
+            ifaces
+              .flatMap((item) => {
+                const addresses = item.ip_addresses?.length
+                  ? item.ip_addresses
+                  : item.ip
+                    ? [{ address: item.ip, source: item.ip_source }]
+                    : []
+                return addresses.filter((address) => address.address && address.address !== '0.0.0.0')
+              })
+              .filter((item) => {
+                if (seen.has(item.address)) return false
+                seen.add(item.address)
+                return true
+              }),
+          )
+        })
+        .catch(() => {
+          if (requestId === supplementalRequestRef.current && showLoading) setInterfaceIPs([])
+        }),
+    ]
+
+    if (!isLightweight) {
+      tasks.push(
+        getDiskList(vmName)
+          .then((res) => {
+            if (requestId === supplementalRequestRef.current) {
+              setDisks((res.data || []).filter((disk) => disk.device_type !== 'cdrom'))
+            }
+          })
+          .catch(() => {
+            if (requestId === supplementalRequestRef.current && showLoading) setDisks([])
+          }),
+      )
+    }
+
+    void Promise.allSettled(tasks).finally(() => {
+      if (requestId !== supplementalRequestRef.current) return
+      supplementalLoadedRef.current = true
+      if (showLoading) setDisksLoading(false)
+    })
+    return () => {
+      if (requestId === supplementalRequestRef.current) supplementalRequestRef.current += 1
+    }
+  }, [vmName, isLightweight, live, liveTick])
+
+  const handleEnableGuestAgent = useCallback(async () => {
+    if (!vmName || guestAgentStatus?.configured || guestAgentEnableLoading) return
+    setGuestAgentEnableLoading(true)
     try {
-      const res = await getDiskList(vmName)
-      setDisks((res.data || []).filter((d) => d.device_type !== 'cdrom'))
+      await updateVm(vmName, { guest_agent: { enabled: true } })
+      setGuestAgentEnableRequested(true)
+      Toast.success('QEMU Guest Agent 配置已启用，运行中的虚拟机建议重启后生效')
     } catch {
-      setDisks([])
+      Toast.warning('QEMU Guest Agent 配置启用失败，请稍后重试')
     } finally {
-      setDisksLoading(false)
+      setGuestAgentEnableLoading(false)
     }
-  }, [vmName, isLightweight])
-
-  // 加载全部网口 IP
-  useEffect(() => {
-    if (!vmName) return
-    let cancelled = false
-    getVMNetworkStatus(vmName)
-      .then((res) => {
-        if (cancelled) return
-        const ifaces: VmNetworkInterface[] = res.data?.interfaces || []
-        const seen = new Set<string>()
-        const ips = ifaces
-          .flatMap((item) => {
-            const addresses = item.ip_addresses?.length
-              ? item.ip_addresses
-              : item.ip
-                ? [{ address: item.ip, source: item.ip_source }]
-                : []
-            return addresses.filter((address) => address.address && address.address !== '0.0.0.0')
-          })
-          .filter((item) => {
-            if (seen.has(item.address)) return false
-            seen.add(item.address)
-            return true
-          })
-        setInterfaceIPs(ips)
-      })
-      .catch(() => !cancelled && setInterfaceIPs([]))
-    return () => {
-      cancelled = true
-    }
-  }, [vmName])
-
-  useEffect(() => {
-    void loadDisks()
-  }, [loadDisks])
+  }, [guestAgentEnableLoading, guestAgentStatus?.configured, vmName])
 
   const copyField = useCallback(async (value: string, fieldName: string) => {
     if (!value) {
@@ -126,19 +218,12 @@ export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstal
 
   // Guest Agent 状态
   const guestAgent = useMemo(() => {
-    const s = vm?.guest_agent_status
+    const s = guestAgentStatus
     if (!s) return { text: '未知', color: 'grey' as const }
     if (s.connected) return { text: '已连接', color: 'green' as const }
     if (s.configured) return { text: '已配置未连接', color: 'orange' as const }
     return { text: '未配置', color: 'grey' as const }
-  }, [vm?.guest_agent_status])
-
-  // 内存策略标签
-  const memoryBackendText = vm?.memory_backend === 'virtio_mem' ? 'virtio-mem 弹性' : 'Balloon 动态'
-  const memoryTooltip =
-    vm?.memory_backend === 'virtio_mem'
-      ? 'Windows 弹性内存基于 virtio-mem：主内存为规格值，基础内存自动计算；运行后使用率超过 70% 每次扩容 1GB，低于 50% 时按目标使用率缩容。'
-      : '系统会根据宿主机资源和面板调度策略动态调整：宿主机内存紧张时可能回收，但最低不低于设定内存的 50%；资源充足时可额外调度约 30% 内存应对突发负载。'
+  }, [guestAgentStatus])
 
   if (!vm) {
     return (
@@ -295,35 +380,68 @@ export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstal
       {/* 网络与连接 */}
       <div className="qvm-info-card">
         <div className="qvm-info-card-title">网络与连接</div>
-        <Row label="全部 IP">
-          {interfaceIPs.length > 0 ? (
-            <div className="qvm-ip-list">
-              {interfaceIPs.map((item) => (
-                <span key={item.address} className="qvm-ip-list-item">
-                  <code className="qvm-code">{item.address}</code>
-                  {item.source && (
-                    <Tag size="small" color={ipSourceTagColor(item.source)}>
-                      {ipSourceLabel(item.source)}
-                    </Tag>
-                  )}
-                  <Tooltip content="复制 IP 地址" position="top">
+        {networkInterfaceCount > 0 && !vmIsPoweredOff && (
+          <Row label="虚拟机IP">
+            {interfaceIPs.length > 0 ? (
+              <div className="qvm-ip-list">
+                {interfaceIPs.map((item) => (
+                  <span key={item.address} className="qvm-ip-list-item">
+                    <code className="qvm-code">{item.address}</code>
+                    {item.source && (
+                      <Tag size="small" color={ipSourceTagColor(item.source)}>
+                        {ipSourceLabel(item.source)}
+                      </Tag>
+                    )}
+                    <Tooltip content="复制 IP 地址" position="top">
+                      <Button
+                        size="small"
+                        theme="borderless"
+                        icon={<IconCopy size="small" />}
+                        aria-label={`复制 IP 地址 ${item.address}`}
+                        onClick={() => void copyField(item.address, 'IP 地址')}
+                      />
+                    </Tooltip>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="qvm-ip-empty">
+                <span>暂无 IP</span>
+                <Popover
+                  trigger="click"
+                  position="top"
+                  showArrow
+                  clickToHide
+                  content={<EmptyIPDetail status={guestAgentStatus} />}
+                >
+                  <Button
+                    size="small"
+                    theme="borderless"
+                    type="primary"
+                    icon={<IconInfoCircle size="small" />}
+                  >
+                    详情
+                  </Button>
+                </Popover>
+                {!isLightweight && guestAgentStatus && !guestAgentStatus.configured && (
+                  <Tooltip content="立即启用 QEMU Guest Agent" position="top">
                     <Button
                       size="small"
                       theme="borderless"
-                      icon={<IconCopy size="small" />}
-                      aria-label={`复制 IP 地址 ${item.address}`}
-                      onClick={() => void copyField(item.address, 'IP 地址')}
+                      type="primary"
+                      icon={guestAgentEnableLoading ? <IconRefresh size="small" spin /> : <IconBolt size="small" />}
+                      aria-label="立即启用 QEMU Guest Agent"
+                      disabled={vm.status === 'migrating' || guestAgentEnableLoading}
+                      onClick={() => void handleEnableGuestAgent()}
                     />
                   </Tooltip>
-                </span>
-              ))}
-            </div>
-          ) : (
-            '-'
-          )}
-        </Row>
-        <Row label="公网 IP">
-          {vm.public_ips && vm.public_ips.length > 0 ? (
+                )}
+              </span>
+            )}
+          </Row>
+        )}
+        {vm.public_ips && vm.public_ips.length > 0 && (
+          <Row label="公网 IP">
             <span className="qvm-ip-list">
               {vm.public_ips.map((item) => (
                 <Tag key={item.public_ip} size="small" color="violet">
@@ -331,10 +449,8 @@ export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstal
                 </Tag>
               ))}
             </span>
-          ) : (
-            '-'
-          )}
-        </Row>
+          </Row>
+        )}
         {vm.video_model !== 'none' && <Row label="VNC 端口"><span className="qvm-mono">{vm.vnc_port || '-'}</span></Row>}
         <Row label="网络接口">{vm.network || '-'}</Row>
         <Row label="显示设备">{vm.video_model || '-'}</Row>
@@ -362,8 +478,8 @@ export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstal
           <Tag size="small" color={vm.pae ? 'green' : 'grey'}>{vm.pae ? '已启用' : '已关闭'}</Tag>
         </Row>
         <Row label="QEMU Guest Agent">
-          {vm.guest_agent_status?.version ? (
-            <Tooltip content={`版本: ${vm.guest_agent_status.version}`} position="top">
+          {guestAgentStatus?.version ? (
+            <Tooltip content={`版本: ${guestAgentStatus.version}`} position="top">
               <Tag size="small" color={guestAgent.color}>{guestAgent.text}</Tag>
             </Tooltip>
           ) : (
@@ -378,17 +494,7 @@ export default function InfoTab({ vm, isLightweight, onResetPassword, onReinstal
       {/* 磁盘 IOPS 限制 */}
       {!isLightweight && (
         <div className="qvm-info-card">
-          <div className="qvm-info-card-title">
-            磁盘 IOPS 限制
-            <Button
-              size="small"
-              theme="borderless"
-              icon={<IconRefresh size="small" spin={disksLoading} />}
-              onClick={() => void loadDisks()}
-            >
-              刷新
-            </Button>
-          </div>
+          <div className="qvm-info-card-title">磁盘 IOPS 限制</div>
           {disksLoading ? (
             <div className="qvm-tab-loading"><Spin /></div>
           ) : disks.length > 0 ? (

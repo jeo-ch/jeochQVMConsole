@@ -10,13 +10,13 @@
 | Tab 键位 | 名称 | 内容 |
 |----------|------|------|
 | `basic` | 基础设置 | 网站标题、端口自动分配范围、访问链接、服务端口（只读） |
-| `network` | 存储与网络 | 模板/克隆/ISO/OVF-OVA 临时目录等存储路径（含"替换为我的存储"）、OVS 网络设置、全局带宽限制、默认磁盘 IOPS |
+| `network` | 存储与网络 | 模板/克隆/ISO/OVF-OVA 临时目录等存储路径（含"替换为我的存储"）、OVS 网络设置、弹性云互联网出口、全局带宽限制、端口安全速率阈值、公网 IPv6 前缀同步周期、默认磁盘 IOPS |
 | `host` | 宿主机设置 | KSM 内存去重挡位、zRAM 压缩内存挡位、KVM Unrestricted Guest、硬件直通环境诊断（IOMMU 一键开启 / vfio-pci 一键加载）、网络等待就绪检测 |
-| `advanced` | 调度与高级 | 动态内存调度参数（NumField 网格）、SPICE 默认开启、批量克隆并发、救援系统 ISO、CPU 亲和性预设 |
-| `security` | 安全与维护 | 开发环境开关、SMTP 配置与测试发信、会话指纹/请求过滤/泄露密码检测、JWT 密钥轮换、维护模式 |
+| `advanced` | 调度与高级 | 调度事件保留、SPICE 默认开启、批量克隆并发、救援系统 ISO、CPU 亲和性预设 |
+| `security` | 安全与维护 | 开发环境开关、SMTP 配置与测试发信、会话指纹/请求过滤/泄露密码检测、安全组默认全放通、JWT 密钥轮换、维护模式 |
 | `log` | 日志管理 | 日志最大备份数、磁盘占用统计、日志文件多选删除 / 导出 ZIP |
 | `diagnostics` | 诊断导出 | 按类别收集诊断信息并导出 ZIP |
-| `storage` | 存储管理 | 用户存储镜像信息、存储回收（fstrim + fallocate --dig-holes） |
+| `storage` | 存储管理 | 用户存储镜像信息、自动定时回收开关（每天凌晨 2:00）、存储回收（fstrim + fallocate --dig-holes） |
 
 ## 文件结构
 
@@ -53,8 +53,9 @@ web/src/views/settings/
 
 ## 交互与保存机制
 
-- **整体保存**：底部"保存设置"按钮提交 `buildSettingsPayload(form)`，校验逻辑集中在 `validateSettingsForm`（与旧前端一致的边界值）。诊断导出 / 存储管理 Tab 为独立操作区，不显示保存按钮。
+- **整体保存**：底部"保存设置"按钮提交 `buildSettingsPayload(form)`，校验逻辑集中在 `validateSettingsForm`（与旧前端一致的边界值）。诊断导出 / 存储管理 Tab 为独立操作区，不显示保存按钮，其中的开关以即时保存方式生效。
 - **即时保存项**（不随整体表单提交，操作前有二次确认弹窗）：
+  - 存储管理 Tab 的"自动定时回收"开关（`PUT /settings`，仅提交 `scheduled_storage_trim_enabled`），默认开启；关闭后每天凌晨 2:00 不再自动执行存储回收，失败自动回滚开关状态
   - KSM / zRAM 挡位切换（`PUT /host/ksm`、`PUT /host/zram`），取消或失败会回滚选中态并重新拉取状态
   - KVM Unrestricted Guest 开关（`PUT /host/kvm-intel-unrestricted-guest`）
   - CPU 亲和性预设（`PUT /settings/cpu-affinity-presets`，独立"保存预设"按钮）
@@ -64,9 +65,13 @@ web/src/views/settings/
 - **高风险二次验证**：维护模式切换保存、JWT 密钥手动轮换和立即执行密码泄露扫描会触发后端 428，由请求层（`api/client.ts`）自动弹出验证弹窗后重试。
 - **定时泄露检测**：独立 `TextSwitch` 控制每天本地时间 `00:00` 的扫描，默认开启；旁边“立即执行”按钮不受实时检测或定时检测开关限制。运行期间按钮显示旋转图标并禁用，状态区展示管理员与普通用户泄露数量。
 - **测试发信**：先静默保存当前配置再调用 `POST /settings/smtp/test`（按钮在 SMTP 表单区内，不在页脚）。
+- **安全组默认全放通**：`TextSwitch` 控制后续新建安全组是否自动添加 IPv4（0.0.0.0/0）和 IPv6（::/0）全放通入站规则，默认关闭。开启时弹出二次确认弹窗提示安全风险，关闭时直接生效。开关仅影响开启后新建的安全组，不会追溯修改已有安全组，也不影响系统自动创建的默认安全组。环境变量 `KVM_SECURITY_GROUP_DEFAULT_ALLOW_ALL`。
 - **站点标题同步**：保存成功后调用 `useAppStore.setSiteTitle`，同时用 `setPublicFlags` 同步泄露密码检测 / SPICE 默认开关的公开标志。
 - **?tab= 定位**：`VALID_SETTINGS_TABS` 白名单校验，切换 Tab 时 `replace` 方式回写 URL，供其他页面（如虚拟机表单空状态）跳转到指定标签页。
-- **多数字参数布局**：动态内存调度 / 全局带宽 / 默认 IOPS 等多数字字段统一使用 `NumField` 卡片 + `.stg-field-grid` 自适应网格，环境变量说明汇总到网格下方的单行提示。
+- **多数字参数布局**：调度事件保留 / 全局带宽 / 默认 IOPS 等多数字字段统一使用 `NumField` 卡片 + `.stg-field-grid` 自适应网格，环境变量说明汇总到网格下方的单行提示。
+- **端口安全参数**：安装与升级后总开关默认关闭；关闭时隐藏速率阈值并跳过提交校验。总开关由网络中心预检后切换，设置页仅在开启状态编辑总包、邻居协议、广播/组播和协调周期。
+- **公网 IPv6 同步**：同步周期默认 60 秒，允许 10 - 3600 秒；后台仅在存在自动导入的 IPv6 资源时读取对应出口网卡，前缀未变化时不重写网络规则。
+- **弹性云互联网出口**：管理员通过物理网卡下拉框设置 `KVM_ELASTIC_CLOUD_UPLINK`。留空时弹性云默认交换机保持独立纯二层；配置后，新用户的默认交换机自动启用托管 DHCP/NAT，现有用户可在交换机编辑弹窗中自行开启。保存时后端会再次确认所选接口为可用的物理 NAT 出口。
 
 > 变更记录：端口转发 HTTP 探测功能已随后端移除（仅剩 config 白名单残留键），设置页不再提供相关配置项。
 
@@ -76,7 +81,7 @@ web/src/views/settings/
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/settings` | GET / PUT | 获取 / 更新系统设置（含定时泄露检测开关） |
+| `/settings` | GET / PUT | 获取 / 更新系统设置（含定时泄露检测、用户存储自动定时回收开关） |
 | `/security/password-breach/status` | GET | 获取泄露扫描状态与受影响账户 |
 | `/security/password-breach/scan` | POST | 立即提交完整扫描任务（高风险） |
 | `/settings/smtp/test` | POST | 测试发信 |
@@ -89,7 +94,7 @@ web/src/views/settings/
 | `/settings/log/export` | POST | 导出日志（blob ZIP） |
 | `/settings/diagnostics/categories` | GET | 诊断类别 |
 | `/settings/diagnostics/export` | POST | 导出诊断（blob ZIP，120s 超时） |
-| `/settings/storage/trim` | POST | 用户存储回收 |
+| `/settings/storage/trim` | POST | 提交用户存储回收任务；返回 `task` 与 `reused` |
 | `/host/ksm` | GET / PUT | KSM 状态 / 挡位 |
 | `/host/zram` | GET / PUT | zRAM 状态 / 挡位 |
 | `/host/kvm-intel-unrestricted-guest` | GET / PUT | KVM 兼容性参数 |
@@ -97,6 +102,8 @@ web/src/views/settings/
 | `/host/hardware-passthrough/enable-iommu` | POST | 一键开启 IOMMU |
 | `/host/hardware-passthrough/load-vfio` | POST | 一键加载 vfio-pci |
 | `/storage-pool/all-isos` | GET | 救援系统 ISO 候选列表 |
+
+存储回收通过 `storage_trim` 任务异步执行，重复提交时复用正在运行的任务。任务会优先解析当前挂载点对应 loop 设备的真实 backing file；未挂载时依次读取 `KVM_USER_STORAGE_IMAGE` 与 `/etc/fstab`。因此镜像位于非根磁盘、环境变量路径过期时，仍会对当前实际镜像执行回收。回收占用量按 `stat` 返回的块大小换算为 1K blocks，`fstrim` 与 `fallocate --dig-holes` 均不设置 IO 超时。
 
 ## 设计规范落实
 

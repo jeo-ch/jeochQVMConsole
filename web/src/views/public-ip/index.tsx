@@ -2,6 +2,7 @@
  * 公网 IP 管理页（仅管理员）
  * - 管理 1:1 NAT、经典网络（路由/桥接）公网 IP 资源与绑定关系
  * - 行内操作：高频「绑定/迁移」图标外露，其余收进 ⋯ 下拉菜单
+ * - 批量操作：勾选行后顶部出现工具栏，支持批量绑定/解绑/删除
  * - 绑定/解绑/迁移/重载为高风险操作，提交任务队列异步应用（428 二次验证由请求层处理）
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -35,10 +36,13 @@ import {
 import type { ColumnProps } from '@douyinfe/semi-ui/lib/es/table'
 import {
   applyPublicIPRules,
+  batchDeletePublicIPs,
+  batchUnbindPublicIPs,
   deletePublicIP,
   getPublicIPs,
   previewPublicIP,
   unbindPublicIP,
+  type PublicIpBatchOpSummary,
   type PublicIpItem,
   type PublicIpPreview,
 } from '@/api/publicIp'
@@ -48,6 +52,7 @@ import { confirmModal } from '@/utils/confirm'
 import { useUserStore } from '@/stores/user'
 import { ROLES } from '@/config/constants'
 import {
+  guestIPv6StatusLabel,
   publicIpModeLabel,
   publicIpRowStatus,
   publicIpStatusLabel,
@@ -56,6 +61,8 @@ import {
 } from './utils'
 import PublicIpDialog from './dialogs/PublicIpDialog'
 import BindPublicIpDialog, { type BindVmOption } from './dialogs/BindPublicIpDialog'
+import BatchBindPublicIpDialog from './dialogs/BatchBindPublicIpDialog'
+import ImportIPv6PrefixDialog from './dialogs/ImportIPv6PrefixDialog'
 import PreviewModal from '@/components/common/PreviewModal'
 import './public-ip.css'
 
@@ -65,7 +72,9 @@ const PAGE_SIZE = 100
 type DialogState =
   | { type: 'edit'; row?: PublicIpItem }
   | { type: 'bind'; row: PublicIpItem; action: 'bind' | 'migrate' }
+  | { type: 'batch-bind'; rows: PublicIpItem[] }
   | { type: 'preview'; row: PublicIpItem; preview: PublicIpPreview }
+  | { type: 'ipv6-import' }
   | null
 
 export default function PublicIpPage() {
@@ -81,7 +90,11 @@ export default function PublicIpPage() {
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [modeFilter, setModeFilter] = useState('')
+  const [familyFilter, setFamilyFilter] = useState('')
   const [page, setPage] = useState(1)
+
+  // 批量选择
+  const [selectedKeys, setSelectedKeys] = useState<(string | number)[]>([])
 
   // ==================== 数据加载 ====================
   const loadData = useCallback(async () => {
@@ -127,12 +140,15 @@ export default function PublicIpPage() {
     if (modeFilter) {
       data = data.filter((row) => (row.modes || []).includes(modeFilter as never))
     }
+	if (familyFilter) {
+	  data = data.filter((row) => (row.address_family || (row.ip.includes(':') ? 'ipv6' : 'ipv4')) === familyFilter)
+	}
     return data
-  }, [list, searchText, statusFilter, modeFilter])
+  }, [list, searchText, statusFilter, modeFilter, familyFilter])
 
   useEffect(() => {
     setPage(1)
-  }, [searchText, statusFilter, modeFilter])
+  }, [searchText, statusFilter, modeFilter, familyFilter])
 
   const paged = useMemo(
     () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -224,13 +240,99 @@ export default function PublicIpPage() {
     }
   }, [])
 
+  // ==================== 批量操作 ====================
+  // 选中行对应的原始数据（跨页保留）
+  const selectedRows = useMemo(() => {
+    const idSet = new Set(selectedKeys)
+    return list.filter((row) => idSet.has(row.id))
+  }, [list, selectedKeys])
+
+  // 批量绑定：仅未绑定的行可参与
+  const bindableRows = useMemo(
+    () => selectedRows.filter((row) => !row.binding),
+    [selectedRows],
+  )
+  // 批量解绑：仅已绑定的行可参与
+  const boundRows = useMemo(
+    () => selectedRows.filter((row) => !!row.binding),
+    [selectedRows],
+  )
+
+  const handleBatchBind = useCallback(() => {
+    if (bindableRows.length === 0) {
+      Toast.warning('请选择至少一条未绑定的公网 IP')
+      return
+    }
+    setDialog({ type: 'batch-bind', rows: bindableRows })
+  }, [bindableRows])
+
+  const handleBatchUnbind = useCallback(async () => {
+    if (boundRows.length === 0) {
+      Toast.warning('请选择至少一条已绑定的公网 IP')
+      return
+    }
+    const ok = await confirmModal({
+      title: '批量解绑公网 IP',
+      content: `确定批量解绑已选中的 ${boundRows.length} 条已绑定公网 IP？现有公网访问会中断。`,
+      okText: '确定批量解绑',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const res = await batchUnbindPublicIPs(boundRows.map((row) => row.id))
+      Toast.success(publicIpTaskToast('批量解绑任务已提交', res.data?.task_id))
+      setSelectedKeys([])
+      refreshAfterTask()
+    } catch {
+      // 请求层已提示
+    }
+  }, [boundRows, refreshAfterTask])
+
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedRows.length === 0) {
+      Toast.warning('请先选择要删除的公网 IP')
+      return
+    }
+    const ok = await confirmModal({
+      title: '批量删除公网 IP',
+      content: `确定批量删除已选中的 ${selectedRows.length} 条公网 IP？已绑定的会自动跳过。`,
+      okText: '确定批量删除',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const res = await batchDeletePublicIPs(selectedRows.map((row) => row.id))
+      const summary: PublicIpBatchOpSummary = (res.data as PublicIpBatchOpSummary) || {
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        items: [],
+      }
+      Toast.success(
+        `批量删除完成（成功 ${summary.success} / 失败 ${summary.failed} / 跳过 ${summary.skipped}）`,
+      )
+      setSelectedKeys([])
+      void loadData()
+    } catch {
+      // 请求层已提示
+    }
+  }, [selectedRows, loadData])
+
   // ==================== 表格 ====================
   const columns: ColumnProps<PublicIpItem>[] = [
     {
       title: '公网 IP',
       dataIndex: 'ip',
-      width: 150,
-      render: (text) => <span className="pip-ip-text">{text}</span>,
+      width: 275,
+      render: (text, row) => (
+        <div className="pip-address-cell">
+          <span className="pip-ip-text">{text}</span>
+          <Tag size="small" color={row.address_family === 'ipv6' || row.ip.includes(':') ? 'purple' : 'cyan'}>
+            {row.address_family === 'ipv6' || row.ip.includes(':') ? 'IPv6' : 'IPv4'}
+          </Tag>
+          {row.auto_ipv6 && <Tag size="small" color="green">动态</Tag>}
+        </div>
+      ),
     },
     {
       title: '掩码/网关',
@@ -291,6 +393,13 @@ export default function PublicIpPage() {
             <div className="pip-muted">用户：{row.binding.username}</div>
             <div className="pip-muted">私网：{row.binding.vm_private_ip || '-'}</div>
             <div className="pip-muted">运行态：{row.binding.runtime_status || '-'}</div>
+            {row.address_family === 'ipv6' && (
+              <Tooltip content={row.binding.guest_ipv6_message || '来宾系统 IPv6 配置状态'}>
+                <div className="pip-muted">
+                  来宾 IPv6：{guestIPv6StatusLabel(row.binding.guest_ipv6_status)}
+                </div>
+              </Tooltip>
+            )}
           </div>
         ) : (
           <span className="pip-muted">未绑定</span>
@@ -397,9 +506,9 @@ export default function PublicIpPage() {
         <div>
           <h2>
             <IconGlobeStroke style={{ marginRight: 8, color: 'var(--qvm-acc-ink)' }} />
-            公网 IP
+            公网 IP（IPv4 / IPv6）
           </h2>
-          <p className="pip-page-sub">管理 1:1 NAT、经典网络和浮动 IP 迁移</p>
+          <p className="pip-page-sub">管理 IPv4 NAT、IPv6 前缀路由、经典网络和浮动 IP 迁移</p>
         </div>
         <div className="pip-header-actions">
           <Button icon={<IconRefresh />} loading={loading} onClick={() => void loadData()}>
@@ -409,6 +518,13 @@ export default function PublicIpPage() {
             重载规则
           </Button>
           <Button
+			theme="light"
+			icon={<IconGlobeStroke />}
+			onClick={() => setDialog({ type: 'ipv6-import' })}
+		  >
+			导入 IPv6 前缀
+		  </Button>
+		  <Button
             type="primary"
             theme="light"
             icon={<IconPlus />}
@@ -423,7 +539,7 @@ export default function PublicIpPage() {
         type="warning"
         closeIcon={null}
         className="qvm-fade-up"
-        description="公网 IP 绑定、解绑、迁移会触发高风险验证，并通过任务队列应用规则。经典网络需要上游网络支持，VM 内 IP 由用户手动配置。"
+        description="公网 IP 绑定、解绑、迁移会触发高风险验证，并通过任务队列应用规则。IPv6 使用 Proxy NDP + /128 路由，VM 内地址与默认路由按预览提示配置。"
         style={{ marginBottom: 16 }}
       />
 
@@ -437,6 +553,17 @@ export default function PublicIpPage() {
           style={{ width: 180 }}
         />
         <Select
+		  value={familyFilter}
+		  onChange={(v) => setFamilyFilter(v as string)}
+		  placeholder="地址族"
+		  showClear
+		  style={{ width: 120 }}
+		  optionList={[
+			{ label: 'IPv4', value: 'ipv4' },
+			{ label: 'IPv6', value: 'ipv6' },
+		  ]}
+		/>
+		<Select
           value={statusFilter}
           onChange={(v) => setStatusFilter(v as string)}
           placeholder="状态筛选"
@@ -463,6 +590,47 @@ export default function PublicIpPage() {
       </div>
 
       <div className="pip-table-card qvm-fade-up">
+        {selectedKeys.length > 0 && (
+          <div className="pip-batch-bar">
+            <span className="pip-batch-bar-count">
+              已选 {selectedKeys.length} 项（可绑定 {bindableRows.length} / 可解绑 {boundRows.length}）
+            </span>
+            <div className="pip-batch-bar-actions">
+              <Button
+                size="small"
+                theme="light"
+                icon={<IconLink />}
+                disabled={bindableRows.length === 0}
+                onClick={() => handleBatchBind()}
+              >
+                批量绑定
+              </Button>
+              <Button
+                size="small"
+                theme="light"
+                type="warning"
+                icon={<IconUnChainStroked />}
+                disabled={boundRows.length === 0}
+                onClick={() => void handleBatchUnbind()}
+              >
+                批量解绑
+              </Button>
+              <Button
+                size="small"
+                theme="light"
+                type="danger"
+                icon={<IconDelete />}
+                onClick={() => void handleBatchDelete()}
+              >
+                批量删除
+              </Button>
+            </div>
+            <div className="pip-batch-bar-spacer" />
+            <Button size="small" theme="borderless" onClick={() => setSelectedKeys([])}>
+              清除选择
+            </Button>
+          </div>
+        )}
         <Table<PublicIpItem>
           rowKey="id"
           columns={columns}
@@ -471,6 +639,10 @@ export default function PublicIpPage() {
           pagination={false}
           size="small"
           empty="暂无公网 IP"
+          rowSelection={{
+            selectedRowKeys: selectedKeys,
+            onChange: (keys) => setSelectedKeys(keys || []),
+          }}
         />
         {filtered.length > PAGE_SIZE && (
           <div className="pip-pagination">
@@ -507,6 +679,25 @@ export default function PublicIpPage() {
           }}
         />
       )}
+      {dialog?.type === 'batch-bind' && (
+        <BatchBindPublicIpDialog
+          rows={dialog.rows}
+          users={users}
+          vms={vms}
+          onClose={() => setDialog(null)}
+          onSubmitted={() => {
+            setSelectedKeys([])
+            refreshAfterTask()
+          }}
+        />
+      )}
+	  {dialog?.type === 'ipv6-import' && (
+		<ImportIPv6PrefixDialog
+		  suggestedCount={Math.max(1, vms.length)}
+		  onClose={() => setDialog(null)}
+		  onSaved={() => void loadData()}
+		/>
+	  )}
       {dialog?.type === 'preview' && (
         <PreviewModal
           title={`规则预览：${dialog.row.ip}`}

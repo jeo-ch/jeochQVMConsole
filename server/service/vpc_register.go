@@ -1,6 +1,9 @@
 package service
 
 import (
+	"context"
+
+	"kvm_console/config"
 	"kvm_console/model"
 	fwpkg "kvm_console/service/firewall"
 	netpkg "kvm_console/service/network"
@@ -23,6 +26,7 @@ type AddVMInterfaceRequest = vpcpkg.AddVMInterfaceRequest
 type VPCQuotaInfo = vpcpkg.VPCQuotaInfo
 type VPCBindingInfo = vpcpkg.VPCBindingInfo
 type VMInterfaceInfo = vpcpkg.VMInterfaceInfo
+type VPCSwitchReconfigureParams = vpcpkg.VPCSwitchReconfigureParams
 
 // ── Wrapper functions（向后兼容，让 service 根包和外部调用方仍通过 service.Xxx 调用） ──
 
@@ -42,8 +46,20 @@ func DeleteVPCSwitch(operator, role string, id uint, force bool) error {
 func GetVPCSwitchVMs(operator, role string, id uint) ([]vpcpkg.VMSwitchInfo, error) {
 	return vpcpkg.GetVPCSwitchVMs(operator, role, id)
 }
+func IsSystemVPCSwitch(id uint) bool {
+	return vpcpkg.IsSystemVPCSwitch(id)
+}
 func ResetVPCSwitchTraffic(operator, role string, id uint) error {
 	return vpcpkg.ResetVPCSwitchTraffic(operator, role, id)
+}
+func ValidateVPCSwitchReconfigure(operator, role string, id uint, req VPCSwitchRequest) (*model.VPCSwitch, error) {
+	return vpcpkg.ValidateVPCSwitchReconfigure(operator, role, id, req)
+}
+func ParseVPCSwitchReconfigureParams(raw string) (VPCSwitchReconfigureParams, error) {
+	return vpcpkg.ParseVPCSwitchReconfigureParams(raw)
+}
+func ExecuteVPCSwitchReconfigure(ctx context.Context, params VPCSwitchReconfigureParams, progress func(int, string)) (string, error) {
+	return vpcpkg.ExecuteVPCSwitchReconfigure(ctx, params, progress)
 }
 
 // Switch runtime
@@ -52,6 +68,10 @@ func EnsureVPCSwitchRuntime(sw model.VPCSwitch) error {
 }
 func EnsureAllVPCSwitchRuntime() error {
 	return vpcpkg.EnsureAllVPCSwitchRuntime()
+}
+
+func ReapplyAllVPCSwitchBandwidth() error {
+	return vpcpkg.ReapplyAllVPCSwitchBandwidth()
 }
 func VPCGatewayPortName(id uint) string {
 	return vpcpkg.VPCGatewayPortName(id)
@@ -77,6 +97,9 @@ func DeleteVPCSecurityGroup(operator, role string, id uint) error {
 }
 func AddVPCSecurityGroupRule(operator, role string, groupID uint, req VPCSecurityGroupRuleRequest) (*model.VPCSecurityGroupRule, error) {
 	return vpcpkg.AddVPCSecurityGroupRule(operator, role, groupID, req)
+}
+func UpdateVPCSecurityGroupRule(operator, role string, ruleID uint, req VPCSecurityGroupRuleRequest) (*model.VPCSecurityGroupRule, error) {
+	return vpcpkg.UpdateVPCSecurityGroupRule(operator, role, ruleID, req)
 }
 func DeleteVPCSecurityGroupRule(operator, role string, ruleID uint) error {
 	return vpcpkg.DeleteVPCSecurityGroupRule(operator, role, ruleID)
@@ -120,11 +143,28 @@ func RemoveVMInterface(vmName string, interfaceOrder int) error {
 func UpdateVMInterface(vmName string, interfaceOrder int, req AddVMInterfaceRequest) error {
 	return vpcpkg.UpdateVMInterface(vmName, interfaceOrder, req)
 }
+func UpdateVMInterfaceAllowedAddresses(vmName string, interfaceOrder int, allowedIPv4, allowedIPv6 string) error {
+	return vpcpkg.UpdateVMInterfaceAllowedAddresses(vmName, interfaceOrder, allowedIPv4, allowedIPv6)
+}
 func AttachExtraNICs(vmName string, extraNics []AddVMInterfaceRequest) error {
 	return vpcpkg.AttachExtraNICs(vmName, extraNics)
 }
 func ListVMInterfaces(vmName string) ([]VMInterfaceInfo, error) {
 	return vpcpkg.ListVMInterfaces(vmName)
+}
+
+// Interface management（普通用户自助：仅限本人虚拟机与本人交换机）
+func ValidateExtraNicsForUser(operator string, extraNics []AddVMInterfaceRequest) error {
+	return vpcpkg.ValidateExtraNicsForUser(operator, extraNics)
+}
+func AddVMInterfaceAsUser(operator, vmName string, req AddVMInterfaceRequest) (*VMInterfaceInfo, error) {
+	return vpcpkg.AddVMInterfaceAsUser(operator, vmName, req)
+}
+func UpdateVMInterfaceAsUser(operator, vmName string, interfaceOrder int, req AddVMInterfaceRequest) error {
+	return vpcpkg.UpdateVMInterfaceAsUser(operator, vmName, interfaceOrder, req)
+}
+func RemoveVMInterfaceAsUser(operator, vmName string, interfaceOrder int) error {
+	return vpcpkg.RemoveVMInterfaceAsUser(operator, vmName, interfaceOrder)
 }
 
 // Helpers
@@ -245,11 +285,18 @@ func init() {
 	vpcpkg.HookOvsUplink = ovspkg.OvsUplink
 	vpcpkg.HookEnsureOVSNetwork = ovspkg.EnsureOVSNetworkReady
 	vpcpkg.HookEnsureOVSBridgeExists = EnsureOVSBridgeExists
-	vpcpkg.HookEnsureOVSBridgeDirect = func(bridgeName, uplink string, migrateHostIP bool, hostAddrs, hostGW, hostMetric string) error {
-		cfg := bridge.HostIPConfig{Addrs: hostAddrs, Gateway: hostGW, Metric: hostMetric}
+	vpcpkg.HookEnsureOVSBridgeDirect = func(bridgeName, uplink string, migrateHostIP bool, hostAddrs, hostGW, hostMetric, hostDNS string) error {
+		cfg := bridge.HostIPConfig{Addrs: hostAddrs, Gateway: hostGW, Metric: hostMetric, DNS: hostDNS}
 		return EnsureOVSBridgeDirect(bridgeName, uplink, migrateHostIP, cfg)
 	}
 	vpcpkg.HookGetOVSBridgePhysicalUplink = bridge.DetectOVSBridgePhysicalUplink
+	vpcpkg.HookValidateSwitchUplink = bridge.ValidateVPCSwitchUplink
+	vpcpkg.HookEffectiveL3Interface = bridge.EffectiveL3Interface
+	vpcpkg.HookCaptureHostIPConfig = func(iface string) (string, string, string, string) {
+		cfg := bridge.CaptureInterfaceIPv4(iface)
+		return cfg.Addrs, cfg.Gateway, cfg.Metric, cfg.DNS
+	}
+	vpcpkg.HookDeleteOwnedSwitchBridge = bridge.DeleteOwnedVPCSwitchBridge
 	vpcpkg.HookBridgeNameForSwitch = BridgeNameForSwitch
 	vpcpkg.HookSwitchUsesDirectBridge = SwitchUsesDirectBridge
 	vpcpkg.HookBridgeModeForSwitch = BridgeModeForSwitch
@@ -259,6 +306,7 @@ func init() {
 	vpcpkg.HookApplyTCVPCSwitchDownlink = applyTCVPCSwitchDownlinkLimit
 	vpcpkg.HookClearTCVPCSwitchDownlink = clearTCVPCSwitchDownlinkLimit
 	vpcpkg.HookEnsureIPTablesRule = ovspkg.EnsureIPTablesRule
+	vpcpkg.HookCleanupStaleNATRules = ovspkg.CleanupStaleManagedNATRules
 	vpcpkg.HookEnsureLocalDNSMasqInput = ovspkg.EnsureLocalDNSMasqInputRules
 	vpcpkg.HookRemoveLocalDNSMasqInput = func(iface string) {
 		ovspkg.RemoveLocalDNSMasqInputRules(iface)
@@ -278,6 +326,11 @@ func init() {
 		}
 		return result
 	}
+	vpcpkg.HookIsPortSecurityEnabled = func() bool {
+		return config.GlobalConfig != nil && config.GlobalConfig.PortSecurityEnabled
+	}
+	vpcpkg.HookTriggerPortSecurityReconcile = TriggerPortSecurityReconcile
+	vpcpkg.HookReconcileVMPortSecurity = ReconcileVMPortSecurity
 
 	// ── OVS Static Host / DHCP hooks ──
 	vpcpkg.HookGetOVSStaticHostByVMName = func(vmName string) (vpcpkg.StaticHost, bool) {
@@ -334,6 +387,7 @@ func init() {
 	vpcpkg.HookGetVMMACByOrder = GetVMMACByOrder
 	vpcpkg.HookAttachVMInterface = vmpkg.AttachVMInterface
 	vpcpkg.HookDetachVMInterface = vmpkg.DetachVMInterface
+	vpcpkg.HookReconfigureVMInterfaceNetwork = vmpkg.ReconfigureVMInterfaceNetwork
 
 	// ── Port forward / Firewall hooks ──
 	vpcpkg.HookRemoveVPCPortForwardAcceptRules = RemoveVPCPortForwardAcceptRules

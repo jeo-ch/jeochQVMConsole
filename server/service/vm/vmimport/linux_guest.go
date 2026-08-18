@@ -7,13 +7,12 @@ import (
 
 	"kvm_console/config"
 	"kvm_console/service"
-	vm_memory "kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
 
 // importVMLinuxDefine handles Linux/Other VM XML construction and define for ImportVM
-func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ramMB int, memoryMeta *vm_memory.VMMemoryMetadata, srcDiskPath string, needUEFI bool, normalizedBootType, initType string) error {
+func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ramMB int, srcDiskPath string, needUEFI bool, normalizedBootType, initType string) error {
 	bootOpt := ""
 	if needUEFI {
 		bootOpt = "--boot uefi "
@@ -38,7 +37,7 @@ func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ra
 			"--disk '%s,format=%s,bus=virtio,discard=unmap,detect_zeroes=unmap' "+
 			"--osinfo detect=on,require=off "+
 			networkArg+
-			"--graphics vnc,listen=0.0.0.0 "+
+			"--graphics vnc,listen=127.0.0.1 "+
 			"--video virtio "+
 			"--import --cpu host-passthrough --print-xml",
 		params.Name, ramMB, vcpuArg, params.MachineType, destDiskPath, format,
@@ -53,13 +52,6 @@ func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ra
 	enableFPR := initType != "windows" && initType != "other"
 	vmXML := service.InjectMemballoonConfig(result.Stdout, enableFPR)
 	var err error
-	if memoryMeta != nil {
-		vmXML, err = vm_memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
-		if err != nil {
-			_ = os.Remove(destDiskPath)
-			return err
-		}
-	}
 	vmXML, err = service.ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, initType)
 	if err != nil {
 		_ = os.Remove(destDiskPath)
@@ -153,11 +145,12 @@ func importVMLinuxDefine(params *ImportVMParams, destDiskPath, format string, ra
 		}
 	}
 
-	return importVMPostDefine(params.Name, srcDiskPath, destDiskPath, params.CopyDisk, memoryMeta, params.Remark, params.Freeze, params.StartAfterImport)
+	return importVMPostDefine(params.Name, srcDiskPath, destDiskPath, params.CopyDisk, params.Remark, params.Freeze, params.StartAfterImport,
+		params.Username, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses)
 }
 
 // importDiskByPathLinuxDefine handles Linux/Other VM XML construction and define for ImportDiskByPath
-func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, format string, ramMB int, memoryMeta *vm_memory.VMMemoryMetadata, mainDiskSrc string, needUEFI bool, normalizedBootType, initType string) error {
+func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, format string, ramMB int, mainDiskSrc string, needUEFI bool, normalizedBootType, initType string) error {
 	bootOpt := ""
 	if needUEFI {
 		bootOpt = "--boot uefi "
@@ -183,7 +176,7 @@ func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, f
 			"--disk '%s,format=%s,bus=%s,discard=unmap,detect_zeroes=unmap' "+
 			"--osinfo detect=on,require=off "+
 			networkArg+
-			"--graphics vnc,listen=0.0.0.0 "+
+			"--graphics vnc,listen=127.0.0.1 "+
 			"--video virtio "+
 			"--import --cpu host-passthrough --virt-type kvm --print-xml",
 		params.Name, ramMB, vcpuArg, params.MachineType, destDiskPath, format, systemDiskBus,
@@ -205,13 +198,6 @@ func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, f
 	enableFPR := initType != "windows" && initType != "other"
 	vmXML := service.InjectMemballoonConfig(xmlOutput, enableFPR)
 	var err error
-	if memoryMeta != nil {
-		vmXML, err = vm_memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
-		if err != nil {
-			_ = os.Remove(destDiskPath)
-			return err
-		}
-	}
 	vmXML, err = service.ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, initType)
 	if err != nil {
 		_ = os.Remove(destDiskPath)
@@ -314,5 +300,6 @@ func importDiskByPathLinuxDefine(params *ImportDiskByPathParams, destDiskPath, f
 		}
 	}
 
-	return importVMPostDefine(params.Name, mainDiskSrc, destDiskPath, params.CopyDisk, memoryMeta, params.Remark, params.Freeze, params.StartAfterImport)
+	return importVMPostDefine(params.Name, mainDiskSrc, destDiskPath, params.CopyDisk, params.Remark, params.Freeze, params.StartAfterImport,
+		params.Username, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses)
 }

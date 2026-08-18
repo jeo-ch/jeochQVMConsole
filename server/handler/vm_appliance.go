@@ -142,7 +142,12 @@ func importApplianceHandler(c *gin.Context, admin bool) {
 		return
 	}
 	if !admin {
-		if req.SwitchID != 0 {
+		// 附加网口仅允许接入用户自己的交换机
+		if err := service.ValidateExtraNicsForUser(usernameStr, params.ExtraNics); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": err.Error()})
+			return
+		}
+		if req.SwitchID != 0 || service.IsPortSecurityEnabled() {
 			switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 			if err != nil {
 				c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": err.Error()})
@@ -151,7 +156,6 @@ func importApplianceHandler(c *gin.Context, admin bool) {
 			params.SwitchID = switchID
 			params.SecurityGroupID = securityGroupID
 		}
-		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
 	}
 	if !validateSwitchBridges(c, params.SwitchID, params.ExtraNics) {
 		return
@@ -199,7 +203,8 @@ func buildImportApplianceParams(req ImportApplianceRequest, username string, adm
 			SpiceEnabled: req.SpiceEnabled, CPUTopologyMode: req.CPUTopologyMode,
 			CPULimitPercent: req.CPULimitPercent, CPUAffinity: req.CPUAffinity,
 			TemplateRootPass: req.TemplateRootPass, TemplateUser: req.TemplateUser,
-			MemoryDynamic: req.MemoryDynamic, SwitchID: req.SwitchID, SecurityGroupID: req.SecurityGroupID,
+			SwitchID: req.SwitchID, SecurityGroupID: req.SecurityGroupID,
+			AllowedIPv4Addresses: req.AllowedIPv4Addresses, AllowedIPv6Addresses: req.AllowedIPv6Addresses,
 			ExtraNics: req.ExtraNics, SystemDiskIOPS: req.SystemDiskIOPS,
 			StartAfterImport: startAfterImport, KVMHidden: req.KVMHidden, VendorID: req.VendorID,
 			Username: username,

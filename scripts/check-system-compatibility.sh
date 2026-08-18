@@ -111,6 +111,8 @@ require_positive_integer "内存" "$RAM_GB"
 require_positive_integer "磁盘" "$DISK_GB"
 resolve_binary
 
+info "将验证运行环境、OVS 网络、端口安全、虚拟机创建与资源清理；独立阶段会继续执行"
+
 if [ -z "$BINARY_PATH" ] || [ ! -x "$BINARY_PATH" ]; then
     error "未找到可执行的 kvm-console，请通过 --binary 指定路径"
     exit 1

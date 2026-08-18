@@ -114,6 +114,18 @@ INSTALL_DIR="$_DEFAULT_INSTALL_DIR"
 SERVICE_NAME="kvm-console"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 ENV_FILE="${INSTALL_DIR}/.env"
+INSTALL_LAUNCH_DIR="$PWD"
+COMPATIBILITY_CHECK_SCRIPT="check-system-compatibility.sh"
+# 首次安装兼容性脚本下载地址，发布前填入正式地址。
+COMPATIBILITY_CHECK_URL="https://download.xiaozhuhouses.asia/download/v1/links/qhnoBKgQhgqxdXFxnZIW95hjerBS3L7HBUAo0GNg8Do"
+COMPATIBILITY_REPORT_DIR="${INSTALL_DIR}/logs/compatibility"
+COMPATIBILITY_SCRIPT_PATH=""
+COMPATIBILITY_DOWNLOAD_TMP=""
+COMPATIBILITY_WARNING=0
+COMPATIBILITY_SKIPPED=0
+COMPATIBILITY_FAILURE_STAGE=""
+COMPATIBILITY_CHECK_STATUS=0
+COMPATIBILITY_INTERRUPTED=0
 # §14.5 候选④：minisign 公钥（发行方随 install.sh 内嵌分发，用于安装期验签；单一来源，不做公钥文件探测）
 # 完整公钥文本（untrusted comment 行 + base64）作为字符串内嵌；写临时文件后供 minisign -V -m 使用。
 # 对应私钥由发行方离线保管（不入库），更换需按 docs/GCHSJ/minisign-publishing.md 轮换。
@@ -532,10 +544,12 @@ COMMAND_CHECKS=(
     "sshpass"
     "ovs-vsctl"
     "ovs-ofctl"
+    "ovsdb-client"
     "dnsmasq"
     "nft"
     "ip"
     "iptables"
+    "ip6tables"
     "tcpdump"
     "tc"
     "setquota"
@@ -2247,6 +2261,7 @@ write_env() {
         env_default "KVM_NETWORK_BACKEND" "ovs"
         env_default "KVM_OVS_BRIDGE" "br-ovs"
         env_default "KVM_OVS_UPLINK" ""
+        env_default "KVM_ELASTIC_CLOUD_UPLINK" ""
         env_default "KVM_OVS_DHCP_START" ""
         env_default "KVM_OVS_DHCP_END" ""
         env_default "KVM_SUBNET_PREFIX" "192.168.122"
@@ -2256,6 +2271,14 @@ write_env() {
         env_default "KVM_EXTERNAL_NIC" ""
         env_default "KVM_MAX_BURST_INBOUND" "0"
         env_default "KVM_MAX_BURST_OUTBOUND" "0"
+        env_default "KVM_PORT_SECURITY_ENABLED" "false"
+        env_default "KVM_PORT_SECURITY_TOTAL_KPPS" "50"
+        env_default "KVM_PORT_SECURITY_TOTAL_BURST_KPACKETS" "40"
+        env_default "KVM_PORT_SECURITY_NEIGHBOR_PPS" "200"
+        env_default "KVM_PORT_SECURITY_NEIGHBOR_BURST_PACKETS" "400"
+        env_default "KVM_PORT_SECURITY_BROADCAST_PPS" "1000"
+        env_default "KVM_PORT_SECURITY_BROADCAST_BURST_PACKETS" "2000"
+        env_default "KVM_PORT_SECURITY_RECONCILE_INTERVAL_SECONDS" "60"
         env_default "KVM_RESCUE_ISO" ""
         env_default "KVM_PUBLIC_BASE_URL" ""
         env_default "KVM_SITE_TITLE" "QVMConsole"
@@ -2446,7 +2469,30 @@ ensure_apparmor_storage_access() {
 }
 
 detect_default_uplink() {
-    ip route show default 2>/dev/null | awk '{print $5; exit}'
+    ip -4 route get 223.5.5.5 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}'
+}
+
+resolve_nat_uplink() {
+    local configured="$1"
+    local bridge=""
+
+    if [ -z "$configured" ]; then
+        configured=$(detect_default_uplink)
+    fi
+    if [ -z "$configured" ]; then
+        return 0
+    fi
+
+    # 物理口加入 OVS 网桥且默认路由已迁移后，Netfilter 的实际出口是网桥。
+    if command -v ovs-vsctl >/dev/null 2>&1; then
+        bridge=$(ovs-vsctl --timeout=5 port-to-br "$configured" 2>/dev/null || true)
+        if [ -n "$bridge" ] && [ "$bridge" != "$configured" ] && \
+            ip -4 route show default dev "$bridge" 2>/dev/null | grep -q '^default '; then
+            printf '%s\n' "$bridge"
+            return 0
+        fi
+    fi
+    printf '%s\n' "$configured"
 }
 
 ensure_sysctl_network() {
@@ -2573,6 +2619,28 @@ setup_ovs_foundation() {
     success "OVS 网络地基已准备"
 }
 
+check_ovs_port_security_prerequisites() {
+    local bridge="$1"
+    info "检查端口安全所需的 OVS 基础能力（总开关保持关闭）..."
+    if ! ovs-ofctl -O OpenFlow13 dump-flows "$bridge" >/dev/null 2>&1; then
+        warn "当前网桥未通过 OpenFlow13 协商，端口安全预检将阻止开启"
+        return 0
+    fi
+    local columns
+    columns=$(ovsdb-client list-columns Open_vSwitch Interface 2>/dev/null || true)
+    if [[ "$columns" != *"ingress_policing_kpkts_rate"* ]] || [[ "$columns" != *"ingress_policing_kpkts_burst"* ]]; then
+        warn "当前 OVS 缺少包速率 policing 字段，端口安全预检将阻止开启"
+        return 0
+    fi
+    local meter_features
+    meter_features=$(ovs-ofctl -O OpenFlow13 meter-features "$bridge" 2>/dev/null || true)
+    if [[ "${meter_features,,}" != *"pktps"* ]] || [[ "${meter_features,,}" != *"burst"* ]]; then
+        warn "当前 OVS 缺少 pktps/burst meter 能力，端口安全预检将阻止开启"
+        return 0
+    fi
+    success "端口安全 OVS 基础能力可用；实际规则落地与清理由兼容性实机测试验证"
+}
+
 _setup_ovs_inner() {
     load_env_file
     local bridge="${KVM_OVS_BRIDGE:-br-ovs}"
@@ -2580,14 +2648,7 @@ _setup_ovs_inner() {
     local gateway="${subnet}.1"
     local dhcp_start="${KVM_OVS_DHCP_START:-${subnet}.2}"
     local dhcp_end="${KVM_OVS_DHCP_END:-${subnet}.254}"
-    local uplink="${KVM_OVS_UPLINK:-}"
-
-    if [ -z "$uplink" ]; then
-        uplink=$(detect_default_uplink)
-    fi
-    if [ -z "$uplink" ]; then
-        warn "未检测到默认出口网卡，OVS NAT 将在面板网络修复时再次尝试。也可在 $ENV_FILE 配置 KVM_OVS_UPLINK"
-    fi
+    local uplink=""
 
     systemctl enable --now openvswitch-switch 2>/dev/null || \
         systemctl enable --now openvswitch 2>/dev/null || true
@@ -2596,6 +2657,10 @@ _setup_ovs_inner() {
         ovs-vsctl --no-wait show 2>/dev/null && break
         sleep 1
     done
+    uplink=$(resolve_nat_uplink "${KVM_OVS_UPLINK:-}")
+    if [ -z "$uplink" ]; then
+        warn "未检测到默认出口网卡，OVS NAT 将在面板网络修复时再次尝试。也可在 $ENV_FILE 配置 KVM_OVS_UPLINK"
+    fi
     if ! ovs-vsctl --timeout=5 --may-exist add-br "$bridge" 2>/dev/null; then
         warn "创建 OVS 网桥失败，跳过 OVS 网络配置"
         return 0
@@ -2716,6 +2781,12 @@ EOF
         iptables -C FORWARD -i "$uplink" -o "$bridge" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
             iptables -A FORWARD -i "$uplink" -o "$bridge" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
     fi
+
+    if virsh net-info default >/dev/null 2>&1; then
+        virsh net-destroy default >/dev/null 2>&1 || true
+        virsh net-autostart default --disable >/dev/null 2>&1 || true
+    fi
+    check_ovs_port_security_prerequisites "$bridge"
 }
 
 setup_sshd_foundation() {
@@ -3571,6 +3642,238 @@ install_files() {
     success "程序文件已安装"
 }
 
+validate_compatibility_script() {
+    local script_path="$1"
+    [ -f "$script_path" ] || return 1
+    [ -s "$script_path" ] || return 1
+    [ -r "$script_path" ] || return 1
+    bash -n "$script_path" >/dev/null 2>&1
+}
+
+download_compatibility_script() {
+    local target_path="${INSTALL_LAUNCH_DIR}/${COMPATIBILITY_CHECK_SCRIPT}"
+    local downloaded=0
+
+    if [ -z "$COMPATIBILITY_CHECK_URL" ]; then
+        COMPATIBILITY_FAILURE_STAGE="兼容性测试脚本获取"
+        warn "兼容性测试脚本下载地址尚未配置: COMPATIBILITY_CHECK_URL"
+        return 1
+    fi
+    if [ -d "$target_path" ]; then
+        COMPATIBILITY_FAILURE_STAGE="兼容性测试脚本下载"
+        warn "目标路径是目录，不能原子替换为兼容性测试脚本: $target_path"
+        return 1
+    fi
+
+    COMPATIBILITY_DOWNLOAD_TMP="${target_path}.download.$$"
+    rm -f "$COMPATIBILITY_DOWNLOAD_TMP"
+    info "正在下载兼容性测试脚本到当前目录..."
+
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fL --progress-bar -o "$COMPATIBILITY_DOWNLOAD_TMP" "$COMPATIBILITY_CHECK_URL"; then
+            downloaded=1
+        else
+            warn "curl 下载兼容性测试脚本失败，尝试使用 wget"
+        fi
+    fi
+    if [ "$downloaded" -eq 0 ] && command -v wget >/dev/null 2>&1; then
+        if wget -O "$COMPATIBILITY_DOWNLOAD_TMP" "$COMPATIBILITY_CHECK_URL"; then
+            downloaded=1
+        fi
+    fi
+    if [ "$downloaded" -eq 0 ]; then
+        rm -f "$COMPATIBILITY_DOWNLOAD_TMP"
+        COMPATIBILITY_DOWNLOAD_TMP=""
+        COMPATIBILITY_FAILURE_STAGE="兼容性测试脚本下载"
+        warn "下载兼容性测试脚本失败"
+        return 1
+    fi
+
+    if ! validate_compatibility_script "$COMPATIBILITY_DOWNLOAD_TMP"; then
+        rm -f "$COMPATIBILITY_DOWNLOAD_TMP"
+        COMPATIBILITY_DOWNLOAD_TMP=""
+        COMPATIBILITY_FAILURE_STAGE="兼容性测试脚本校验"
+        warn "下载的兼容性测试脚本为空、不可读或语法校验失败"
+        return 1
+    fi
+
+    chmod 700 "$COMPATIBILITY_DOWNLOAD_TMP"
+    mv -f "$COMPATIBILITY_DOWNLOAD_TMP" "$target_path"
+    COMPATIBILITY_DOWNLOAD_TMP=""
+    chmod 700 "$target_path"
+    COMPATIBILITY_SCRIPT_PATH="$target_path"
+    success "兼容性测试脚本下载并校验完成"
+}
+
+obtain_compatibility_script() {
+    local local_script="${INSTALL_LAUNCH_DIR}/${COMPATIBILITY_CHECK_SCRIPT}"
+    COMPATIBILITY_SCRIPT_PATH=""
+
+    if [ -e "$local_script" ]; then
+        info "检测当前目录中的兼容性测试脚本: $local_script"
+        if validate_compatibility_script "$local_script"; then
+            COMPATIBILITY_SCRIPT_PATH="$local_script"
+            success "本地兼容性测试脚本校验通过"
+            return 0
+        fi
+        warn "本地兼容性测试脚本校验失败，将通过网络重新下载"
+    else
+        info "当前目录未找到 ${COMPATIBILITY_CHECK_SCRIPT}，将通过网络获取"
+    fi
+
+    download_compatibility_script
+}
+
+deploy_compatibility_script() {
+    local source_path="$1"
+    mkdir -p "${INSTALL_DIR}/scripts"
+    install -m 700 "$source_path" "${INSTALL_DIR}/scripts/${COMPATIBILITY_CHECK_SCRIPT}"
+    success "兼容性测试脚本已部署到 ${INSTALL_DIR}/scripts/${COMPATIBILITY_CHECK_SCRIPT}"
+}
+
+execute_compatibility_check() {
+    local script_path="$1"
+    COMPATIBILITY_CHECK_STATUS=0
+    COMPATIBILITY_INTERRUPTED=0
+
+    info "开始创建 1 vCPU / 1GB 内存 / 1GB 磁盘的临时测试虚拟机..."
+    trap 'COMPATIBILITY_INTERRUPTED=1; warn "收到中断信号，正在等待兼容性测试清理临时资源"' INT TERM
+    set +e
+    bash "$script_path" \
+        --binary "${INSTALL_DIR}/kvm-console" \
+        --report-dir "$COMPATIBILITY_REPORT_DIR" \
+        --vcpu 1 \
+        --ram-gb 1 \
+        --disk-gb 1
+    COMPATIBILITY_CHECK_STATUS=$?
+    set -e
+    trap - INT TERM
+
+    if [ "$COMPATIBILITY_INTERRUPTED" -eq 1 ]; then
+        COMPATIBILITY_CHECK_STATUS=130
+    fi
+}
+
+rollback_first_install_program_files() {
+    warn "正在撤回本次复制的程序文件；依赖、网络地基、配置和诊断报告将保留"
+    rm -f \
+        "${INSTALL_DIR}/kvm-console" \
+        "${INSTALL_DIR}/kvm-console-native" \
+        "${INSTALL_DIR}/kvm-console-compat" \
+        "${INSTALL_DIR}/scripts/${COMPATIBILITY_CHECK_SCRIPT}"
+    rm -rf "${INSTALL_DIR}/web-dist"
+    rmdir "${INSTALL_DIR}/scripts" 2>/dev/null || true
+    success "程序文件已撤回；重新运行安装脚本仍会进入首次安装"
+}
+
+confirm_continue_after_compatibility_failure() {
+    local continue_install
+    echo ""
+    warn "兼容性测试未通过"
+    warn "失败阶段: ${COMPATIBILITY_FAILURE_STAGE:-兼容性测试执行}"
+    warn "报告目录: ${COMPATIBILITY_REPORT_DIR}"
+    read -rp "兼容性测试未通过，是否仍继续安装面板？[y/N]: " continue_install
+    continue_install=${continue_install:-N}
+    if [[ "$continue_install" =~ ^[Yy]$ ]]; then
+        COMPATIBILITY_WARNING=1
+        warn "用户选择继续安装，安装完成信息将保留兼容性警告"
+        return 0
+    fi
+
+    rollback_first_install_program_files
+    exit 1
+}
+
+run_first_install_compatibility_check() {
+    [ "$MODE" = "install" ] || return 0
+
+    local run_check
+    local check_status
+    echo ""
+    read -rp "是否运行系统兼容性测试？首次安装强烈推荐 [Y/n]: " run_check
+    run_check=${run_check:-Y}
+    if [[ ! "$run_check" =~ ^[Yy]$ ]]; then
+        COMPATIBILITY_SKIPPED=1
+        warn "已跳过兼容性测试，宿主机尚未完成实际虚拟机创建与 OVS 接入验证"
+        return 0
+    fi
+
+    if ! obtain_compatibility_script; then
+        warn "兼容性测试未执行：未取得有效的测试脚本"
+        confirm_continue_after_compatibility_failure
+        return 0
+    fi
+
+    deploy_compatibility_script "$COMPATIBILITY_SCRIPT_PATH"
+    execute_compatibility_check "${INSTALL_DIR}/scripts/${COMPATIBILITY_CHECK_SCRIPT}"
+    check_status=$COMPATIBILITY_CHECK_STATUS
+
+    if [ "$check_status" -eq 0 ]; then
+        success "宿主机虚拟机创建与基础 OVS 网络兼容性测试通过"
+        return 0
+    fi
+
+    if [ "$check_status" -eq 130 ]; then
+        COMPATIBILITY_FAILURE_STAGE="用户中断"
+    else
+        COMPATIBILITY_FAILURE_STAGE="一个或多个兼容性测试阶段"
+    fi
+    confirm_continue_after_compatibility_failure
+}
+
+run_update_compatibility_check() {
+    [ "$MODE" = "update" ] || return 0
+
+    local run_check
+    local release_script="${RELEASE_SOURCE_DIR}/${COMPATIBILITY_CHECK_SCRIPT}"
+    local installed_script="${INSTALL_DIR}/scripts/${COMPATIBILITY_CHECK_SCRIPT}"
+    echo ""
+    read -rp "是否使用本次更新的新版本代码重新运行系统兼容性测试？[y/N]: " run_check
+    run_check=${run_check:-N}
+    if [[ ! "$run_check" =~ ^[Yy]$ ]]; then
+        info "已跳过更新后的系统兼容性测试"
+        return 0
+    fi
+
+    if ! validate_compatibility_script "$release_script"; then
+        COMPATIBILITY_WARNING=1
+        COMPATIBILITY_FAILURE_STAGE="新版本兼容性测试脚本校验"
+        warn "本次发行包中的兼容性测试脚本缺失或校验失败，未使用已安装的旧脚本替代"
+        return 0
+    fi
+    if [ ! -x "${INSTALL_DIR}/kvm-console" ]; then
+        COMPATIBILITY_WARNING=1
+        COMPATIBILITY_FAILURE_STAGE="新版本后端程序校验"
+        warn "本次更新后的后端程序不存在或不可执行"
+        return 0
+    fi
+
+    deploy_compatibility_script "$release_script"
+    if ! validate_compatibility_script "$installed_script" || ! cmp -s "$release_script" "$installed_script"; then
+        COMPATIBILITY_WARNING=1
+        COMPATIBILITY_FAILURE_STAGE="新版本兼容性测试脚本部署"
+        warn "新版本兼容性测试脚本部署校验失败"
+        return 0
+    fi
+
+    info "将使用本次发行包部署的兼容性脚本和更新后的后端程序执行测试"
+    execute_compatibility_check "$installed_script"
+    if [ "$COMPATIBILITY_CHECK_STATUS" -eq 0 ]; then
+        success "更新后的系统兼容性测试通过"
+        return 0
+    fi
+
+    COMPATIBILITY_WARNING=1
+    if [ "$COMPATIBILITY_CHECK_STATUS" -eq 130 ]; then
+        COMPATIBILITY_FAILURE_STAGE="用户中断"
+        warn "更新后的系统兼容性测试已中断，更新流程将继续启动面板"
+    else
+        COMPATIBILITY_FAILURE_STAGE="一个或多个兼容性测试阶段"
+        warn "更新后的系统兼容性测试未通过，更新流程将继续启动面板"
+    fi
+    warn "诊断报告目录: ${COMPATIBILITY_REPORT_DIR}"
+}
+
 setup_service() {
     info "配置 systemd 服务..."
     cat >"$SERVICE_FILE" <<EOF
@@ -4391,6 +4694,8 @@ run_install_or_update() {
     ensure_sysctl_network || warn "sysctl 网络优化配置失败"
     setup_sshd_foundation || warn "SSHD 地基配置失败"
     setup_bash_audit || warn "bash 命令审计配置失败"
+    run_first_install_compatibility_check
+    run_update_compatibility_check
     setup_service
     start_service
     show_info

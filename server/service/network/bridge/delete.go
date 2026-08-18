@@ -121,10 +121,13 @@ func EnsureAllNetworkBridgesRuntime() error {
 	var lastErr error
 	for _, row := range rows {
 		cfg := HostIPConfig{
-			Addrs:   row.HostAddrs,
-			Gateway: row.HostGateway,
-			Metric:  row.HostMetric,
-			DNS:     row.HostDNS,
+			Addrs:    row.HostAddrs,
+			Gateway:  row.HostGateway,
+			Metric:   row.HostMetric,
+			DNS:      row.HostDNS,
+			Addrs6:   row.HostAddrs6,
+			Gateway6: row.HostGateway6,
+			Metric6:  row.HostMetric6,
 		}
 		if err := EnsureOVSBridgeDirect(row.Name, row.UplinkIF, row.MigrateHostIP, cfg); err != nil {
 			lastErr = err
@@ -141,6 +144,31 @@ func EnsureAllNetworkBridgesRuntime() error {
 		}
 	}
 	return lastErr
+}
+
+// DeleteOwnedVPCSwitchBridge 清理由 VPC 交换机独占管理的 OVS 网桥。
+func DeleteOwnedVPCSwitchBridge(name, uplink string, migrateHostIP bool, hostDNS string) error {
+	name = strings.TrimSpace(name)
+	uplink = strings.TrimSpace(uplink)
+	if name == "" || name == ovspkg.OvsBridgeName() {
+		return nil
+	}
+	_ = os.Remove(bridgeRestoreScriptPath(name))
+	if ovsBridgeExists(name) {
+		if migrateHostIP && uplink != "" {
+			migrateBridgeIPv4ToInterface(name, uplink)
+			restoreInterfaceResolvedDNS(uplink, name, hostDNS)
+		}
+		if uplink != "" {
+			utils.ExecCommand("ovs-vsctl", "--if-exists", "del-port", name, uplink)
+		}
+		utils.ExecCommand("ovs-vsctl", "--if-exists", "del-br", name)
+	}
+	if uplink != "" {
+		removeNetworkdDHCPOverrideForPort(uplink)
+	}
+	disableBridgeRestoreUnitIfEmpty()
+	return nil
 }
 
 func defaultNetworkBridgeRecords() []NetworkBridgeInfo {

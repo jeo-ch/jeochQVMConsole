@@ -20,6 +20,19 @@ func ListHostPhysicalInterfaces() ([]HostInterfaceInfo, error) {
 	defaults := readDefaultRouteIfaces()
 	ovsPorts := readOVSPortBridgeMap()
 	managed := readManagedBridgeByUplink()
+	directSwitches := map[string][]model.VPCSwitch{}
+	natSwitchCounts := map[string]int64{}
+	if model.DB != nil {
+		var switches []model.VPCSwitch
+		_ = model.DB.Where("uplink_if <> ''").Find(&switches).Error
+		for _, sw := range switches {
+			if sw.DHCPEnabled {
+				natSwitchCounts[sw.UplinkIF]++
+			} else if SwitchUsesDirectBridge(sw) {
+				directSwitches[sw.UplinkIF] = append(directSwitches[sw.UplinkIF], sw)
+			}
+		}
+	}
 	var result []HostInterfaceInfo
 	for _, item := range items {
 		if item.IfName == "" {
@@ -43,7 +56,34 @@ func ListHostPhysicalInterfaces() ([]HostInterfaceInfo, error) {
 			info.OVSBridge = bridge
 		}
 		info.ManagedBridge = managed[item.IfName]
-		if info.DefaultRoute {
+		effective := EffectiveL3Interface(item.IfName)
+		cfg := CaptureInterfaceIPv4(effective)
+		info.DefaultRoute = info.DefaultRoute || defaults[effective]
+		if len(info.Addresses) == 0 && strings.TrimSpace(cfg.Addrs) != "" {
+			info.Addresses = strings.Fields(cfg.Addrs)
+		}
+		info.Gateway = cfg.Gateway
+		info.EffectiveL3IF = effective
+		info.NATSwitchCount = natSwitchCounts[item.IfName]
+		shareableDirect := false
+		if switches := directSwitches[item.IfName]; len(switches) > 0 {
+			info.DirectSwitchID = switches[0].ID
+			info.DirectSwitchName = switches[0].Name
+			shareableDirect = true
+			sharedBridge := strings.TrimSpace(switches[0].BridgeName)
+			for _, sw := range switches {
+				info.DirectVLANIDs = append(info.DirectVLANIDs, sw.BridgeVLANID)
+				if !strings.EqualFold(sharedBridge, strings.TrimSpace(sw.BridgeName)) {
+					shareableDirect = false
+				}
+			}
+			sort.Ints(info.DirectVLANIDs)
+		}
+		unusedDirect := info.OVSBridge == "" && info.DirectSwitchID == 0 && info.NATSwitchCount == 0
+		info.CanUseDirect = info.ManagedBridge == "" && (unusedDirect || shareableDirect)
+		// NAT 通过有效三层接口出站，可复用系统基础网桥或已有物理直通网桥；网关缺失时由创建表单补充。
+		info.CanUseNAT = strings.TrimSpace(cfg.Addrs) != ""
+		if info.DefaultRoute || strings.TrimSpace(info.Gateway) != "" {
 			info.Risk = "承载默认路由，桥接时可能短暂中断宿主机网络"
 		}
 		if info.Physical {

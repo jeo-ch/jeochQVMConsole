@@ -1,5 +1,5 @@
 /**
- * 调度与高级 Tab：动态内存调度 / 显示协议 / 批量克隆 / 救援系统 / CPU 亲和性预设
+ * 调度与高级 Tab：调度事件 / 显示协议 / 批量克隆 / 救援系统 / CPU 亲和性预设
  */
 import { useEffect, useState } from 'react'
 import { Button, Input, InputNumber, Select, Toast, Tooltip } from '@douyinfe/semi-ui'

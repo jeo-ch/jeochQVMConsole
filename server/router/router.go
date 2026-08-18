@@ -159,8 +159,8 @@ func Setup() *gin.Engine {
 				vm.POST("/:name/migration/preview", middleware.AdminMiddleware(), handler.PreviewVMMigration)
 				vm.POST("/:name/migrate", middleware.AdminMiddleware(), handler.MigrateVM)
 				vm.PUT("/:name/security-group", handler.SwitchVMSecurityGroup)
-				// 多网口管理（仅管理员）
-				vm.GET("/:name/interfaces", handler.ListVMInterfaces)
+			// 多网口管理（管理员全量；弹性云用户可自助管理本人虚拟机的附加网口）
+			vm.GET("/:name/interfaces", handler.ListVMInterfaces)
 				vm.POST("/:name/interfaces", handler.AddVMInterface)
 				vm.PUT("/:name/interfaces/:order", handler.UpdateVMInterface)
 				vm.DELETE("/:name/interfaces/:order", handler.RemoveVMInterface)
@@ -316,16 +316,22 @@ func Setup() *gin.Engine {
 				network.GET("/interfaces/:name/config", middleware.AdminMiddleware(), handler.GetInterfaceConfig)
 				network.PUT("/interfaces/:name/config", middleware.AdminMiddleware(), handler.SetInterfaceConfig)
 
-				// 公网 IP / 浮动 IP
-				network.GET("/public-ips", middleware.AdminMiddleware(), handler.ListPublicIPs)
-				network.POST("/public-ips", middleware.AdminMiddleware(), handler.CreatePublicIP)
-				network.PUT("/public-ips/:id", middleware.AdminMiddleware(), handler.UpdatePublicIP)
-				network.DELETE("/public-ips/:id", middleware.AdminMiddleware(), handler.DeletePublicIP)
-				network.POST("/public-ips/:id/preview", middleware.AdminMiddleware(), handler.PreviewPublicIP)
-				network.POST("/public-ips/:id/bind", middleware.AdminMiddleware(), handler.BindPublicIP)
-				network.POST("/public-ips/:id/unbind", middleware.AdminMiddleware(), handler.UnbindPublicIP)
-				network.POST("/public-ips/:id/migrate", middleware.AdminMiddleware(), handler.MigratePublicIP)
-				network.POST("/public-ips/apply", middleware.AdminMiddleware(), handler.ApplyPublicIPRules)
+			// 公网 IP / 浮动 IP
+			network.GET("/public-ips", middleware.AdminMiddleware(), handler.ListPublicIPs)
+			network.POST("/public-ips", middleware.AdminMiddleware(), handler.CreatePublicIP)
+			network.GET("/public-ips/ipv6-prefixes", middleware.AdminMiddleware(), handler.DiscoverPublicIPv6Prefixes)     // 检测上联网卡公网 IPv6 前缀
+	network.POST("/public-ips/ipv6-prefixes/import", middleware.AdminMiddleware(), handler.ImportPublicIPv6Prefix) // 批量导入公网 IPv6 /128 地址资源
+	network.POST("/public-ips/batch", middleware.AdminMiddleware(), handler.BatchCreatePublicIPs)                 // 批量新增公网 IP（共用除 IP 外的字段）
+	network.DELETE("/public-ips/batch", middleware.AdminMiddleware(), handler.BatchDeletePublicIPs)              // 批量删除公网 IP（已绑定的自动跳过）
+	network.POST("/public-ips/batch/bind", middleware.AdminMiddleware(), handler.BatchBindPublicIPs)              // 批量绑定公网 IP（高风险，任务队列）
+	network.POST("/public-ips/batch/unbind", middleware.AdminMiddleware(), handler.BatchUnbindPublicIPs)          // 批量解绑公网 IP（高风险，任务队列）
+	network.PUT("/public-ips/:id", middleware.AdminMiddleware(), handler.UpdatePublicIP)
+			network.DELETE("/public-ips/:id", middleware.AdminMiddleware(), handler.DeletePublicIP)
+			network.POST("/public-ips/:id/preview", middleware.AdminMiddleware(), handler.PreviewPublicIP)
+			network.POST("/public-ips/:id/bind", middleware.AdminMiddleware(), handler.BindPublicIP)
+			network.POST("/public-ips/:id/unbind", middleware.AdminMiddleware(), handler.UnbindPublicIP)
+			network.POST("/public-ips/:id/migrate", middleware.AdminMiddleware(), handler.MigratePublicIP)
+			network.POST("/public-ips/apply", middleware.AdminMiddleware(), handler.ApplyPublicIPRules)
 
 				// 网络抓包诊断
 				network.GET("/captures/:task_id", middleware.AdminMiddleware(), handler.GetNetworkCaptureSession)
@@ -340,6 +346,7 @@ func Setup() *gin.Engine {
 				vpc.GET("/switches", handler.ListVPCSwitches)
 				vpc.POST("/switches", middleware.ElasticCloudOnlyMiddleware(), handler.CreateVPCSwitch)
 				vpc.PUT("/switches/:id", middleware.ElasticCloudOnlyMiddleware(), handler.UpdateVPCSwitch)
+				vpc.POST("/switches/:id/reconfigure", middleware.ElasticCloudOnlyMiddleware(), handler.ReconfigureVPCSwitch) // 异步重配置交换机拓扑
 				vpc.POST("/switches/:id/traffic/reset", middleware.ElasticCloudOnlyMiddleware(), handler.ResetVPCSwitchTraffic)
 				vpc.DELETE("/switches/:id", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteVPCSwitch)
 				vpc.GET("/switches/:id/vms", handler.GetVPCSwitchVMs)
@@ -348,6 +355,7 @@ func Setup() *gin.Engine {
 				vpc.PUT("/security-groups/:id", middleware.ElasticCloudOnlyMiddleware(), handler.UpdateVPCSecurityGroup)
 				vpc.DELETE("/security-groups/:id", middleware.ElasticCloudOnlyMiddleware(), handler.DeleteVPCSecurityGroup)
 				vpc.POST("/security-groups/:id/rules", handler.AddVPCSecurityGroupRule)
+				vpc.PUT("/security-groups/rules/:id", handler.UpdateVPCSecurityGroupRule) // 编辑安全组规则（保存后重建 VPC ACL）
 				vpc.DELETE("/security-groups/rules/:id", handler.DeleteVPCSecurityGroupRule)
 				vpc.GET("/acl/preview", handler.PreviewVPCACL)
 				vpc.POST("/acl/apply", handler.ApplyVPCACL)
@@ -390,6 +398,17 @@ func Setup() *gin.Engine {
 				ovs.GET("/leases", handler.GetOVSLeases)
 				ovs.POST("/check", handler.CheckOVSNetwork)
 				ovs.POST("/repair", handler.RepairOVSNetwork)
+				ovs.GET("/port-security/status", handler.GetPortSecurityStatus)                 // 获取端口安全状态与端口诊断
+				ovs.POST("/port-security/preflight", handler.PreflightPortSecurity)             // 只读预检端口安全能力和配置
+				ovs.POST("/port-security/enable", handler.EnablePortSecurity)                   // 异步启用端口安全
+				ovs.POST("/port-security/disable", handler.DisablePortSecurity)                 // 异步停用端口安全
+				ovs.POST("/port-security/reconcile", handler.ReconcilePortSecurity)             // 异步协调全部端口策略
+				ovs.POST("/port-security/ports/:port/isolate", handler.IsolatePortSecurityPort) // 异步隔离指定 OVS 端口
+				ovs.POST("/port-security/ports/:port/release", handler.ReleasePortSecurityPort) // 异步释放指定 OVS 端口
+				ovs.GET("/port-mirror/options", handler.GetPortMirrorOptions)                   // 获取端口镜像源接口和目标空交换机
+				ovs.GET("/port-mirror/status", handler.GetPortMirrorStatus)                     // 获取端口镜像实时状态与计数
+				ovs.POST("/port-mirror/enable", handler.EnablePortMirror)                       // 异步启用端口镜像
+				ovs.POST("/port-mirror/disable", handler.DisablePortMirror)                     // 异步停用端口镜像并清理运行态
 			}
 
 			// ==================== 存储池管理 ====================

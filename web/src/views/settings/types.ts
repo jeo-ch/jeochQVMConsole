@@ -34,6 +34,7 @@ export interface SettingsForm {
   network_backend: string
   ovs_bridge: string
   ovs_uplink: string
+  elastic_cloud_uplink: string
   ovs_dhcp_start: string
   ovs_dhcp_end: string
   subnet_prefix: string
@@ -44,10 +45,20 @@ export interface SettingsForm {
   external_nic: string
   max_burst_inbound: number
   max_burst_outbound: number
+  port_security_enabled: boolean
+  port_security_total_kpps: number
+  port_security_total_burst_kpackets: number
+  port_security_neighbor_pps: number
+  port_security_neighbor_burst_packets: number
+  port_security_broadcast_pps: number
+  port_security_broadcast_burst_packets: number
+  port_security_reconcile_interval_seconds: number
+  public_ipv6_sync_interval_seconds: number
   default_disk_iops_total: number
   default_disk_iops_read: number
   default_disk_iops_write: number
   batch_clone_max_concurrency: number
+  scheduler_event_retention_hours: number
   dynamic_memory_scheduler_enabled: boolean
   dynamic_memory_interval_seconds: number
   dynamic_memory_host_reserve_mb: number
@@ -56,7 +67,6 @@ export interface SettingsForm {
   dynamic_memory_reclaim_threshold_percent: number
   dynamic_memory_cooldown_seconds: number
   dynamic_memory_observation_hours: number
-  scheduler_event_retention_hours: number
   rescue_iso: string
   public_base_url: string
   site_title: string
@@ -65,6 +75,7 @@ export interface SettingsForm {
   request_filter_enabled: boolean
   password_breach_check_enabled: boolean
   scheduled_password_breach_check_enabled: boolean
+  scheduled_storage_trim_enabled: boolean
   maintenance_mode: boolean
   maintenance_service_units: string
   maintenance_vm_shutdown_timeout_seconds: number
@@ -90,6 +101,7 @@ export interface SettingsForm {
   spice_enabled_by_default: boolean
   igpu_passthrough_enabled: boolean
   hardware_passthrough_enabled: boolean
+  security_group_default_allow_all: boolean
 }
 
 /** 表单默认值（后端未返回字段时兜底） */
@@ -105,6 +117,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   network_backend: 'ovs',
   ovs_bridge: 'br-ovs',
   ovs_uplink: '',
+  elastic_cloud_uplink: '',
   ovs_dhcp_start: '',
   ovs_dhcp_end: '',
   subnet_prefix: '',
@@ -115,10 +128,20 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   external_nic: '',
   max_burst_inbound: 0,
   max_burst_outbound: 0,
+  port_security_enabled: false,
+  port_security_total_kpps: 50,
+  port_security_total_burst_kpackets: 40,
+  port_security_neighbor_pps: 200,
+  port_security_neighbor_burst_packets: 400,
+  port_security_broadcast_pps: 1000,
+  port_security_broadcast_burst_packets: 2000,
+  port_security_reconcile_interval_seconds: 60,
+  public_ipv6_sync_interval_seconds: 60,
   default_disk_iops_total: 0,
   default_disk_iops_read: 0,
   default_disk_iops_write: 0,
   batch_clone_max_concurrency: 10,
+  scheduler_event_retention_hours: 168,
   dynamic_memory_scheduler_enabled: true,
   dynamic_memory_interval_seconds: 30,
   dynamic_memory_host_reserve_mb: 2048,
@@ -127,7 +150,6 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   dynamic_memory_reclaim_threshold_percent: 35,
   dynamic_memory_cooldown_seconds: 120,
   dynamic_memory_observation_hours: 24,
-  scheduler_event_retention_hours: 168,
   rescue_iso: '',
   public_base_url: '',
   site_title: 'QVMConsole',
@@ -136,6 +158,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   request_filter_enabled: true,
   password_breach_check_enabled: true,
   scheduled_password_breach_check_enabled: true,
+  scheduled_storage_trim_enabled: true,
   maintenance_mode: false,
   maintenance_service_units: DEFAULT_MAINTENANCE_SERVICE_UNITS,
   maintenance_vm_shutdown_timeout_seconds: 40,
@@ -161,6 +184,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   spice_enabled_by_default: false,
   igpu_passthrough_enabled: false,
   hardware_passthrough_enabled: false,
+  security_group_default_allow_all: false,
 }
 
 /** 保存前校验，返回第一条错误信息；通过时返回 null */
@@ -169,25 +193,45 @@ export function validateSettingsForm(form: SettingsForm): string | null {
   if (form.auto_port_start < 1024 || form.auto_port_end > 65535) return '端口范围: 1024 - 65535'
   if (form.smtp_port < 1 || form.smtp_port > 65535) return 'SMTP 端口范围: 1 - 65535'
   if (form.smtp_timeout_seconds < 5) return 'SMTP 超时时间不能小于 5 秒'
+  if (form.scheduler_event_retention_hours < 1 || form.scheduler_event_retention_hours > 2160)
+    return '调度事件保留时长需在 1 - 2160 小时之间'
   if (form.dynamic_memory_interval_seconds < 10) return '动态内存调度间隔不能小于 10 秒'
   if (form.dynamic_memory_host_reserve_mb < 512) return '宿主机保留内存不能小于 512MB'
   if (form.dynamic_memory_host_reserve_percent < 5 || form.dynamic_memory_host_reserve_percent > 80)
-    return '宿主机保留比例需在 5% - 80% 之间'
+    return '宿主机保留内存占比需在 5% - 80% 之间'
   if (
     form.dynamic_memory_increase_threshold_percent < 5 ||
     form.dynamic_memory_increase_threshold_percent > 50
   )
-    return '增长触发阈值需在 5% - 50% 之间'
+    return '扩容阈值需在 5% - 50% 之间'
   if (
     form.dynamic_memory_reclaim_threshold_percent < 10 ||
     form.dynamic_memory_reclaim_threshold_percent > 90
   )
-    return '回收触发阈值需在 10% - 90% 之间'
+    return '回收阈值需在 10% - 90% 之间'
   if (form.dynamic_memory_cooldown_seconds < 30) return '动态内存冷却时间不能小于 30 秒'
   if (form.dynamic_memory_observation_hours < 0 || form.dynamic_memory_observation_hours > 168)
-    return '观察期需在 0 - 168 小时之间'
-  if (form.scheduler_event_retention_hours < 1 || form.scheduler_event_retention_hours > 2160)
-    return '调度事件保留时长需在 1 - 2160 小时之间'
+    return '观测时长需在 0 - 168 小时之间'
+  if (form.public_ipv6_sync_interval_seconds < 10 || form.public_ipv6_sync_interval_seconds > 3600)
+    return '公网 IPv6 前缀检测周期需在 10 - 3600 秒之间'
+  if (form.port_security_enabled) {
+    if (form.port_security_total_kpps < 1) return '端口总包速率需大于 0'
+    if (form.port_security_total_burst_kpackets * 5 < form.port_security_total_kpps * 4)
+      return '端口总包突发值至少应达到速率的 80%'
+    if (form.port_security_neighbor_pps < 1 || form.port_security_neighbor_burst_packets < 1)
+      return 'ARP/ND 速率与突发值需大于 0'
+    if (form.port_security_neighbor_burst_packets * 5 < form.port_security_neighbor_pps * 4)
+      return 'ARP/ND 突发值至少应达到速率的 80%'
+    if (form.port_security_broadcast_pps < 1 || form.port_security_broadcast_burst_packets < 1)
+      return '广播/组播速率与突发值需大于 0'
+    if (form.port_security_broadcast_burst_packets * 5 < form.port_security_broadcast_pps * 4)
+      return '广播/组播突发值至少应达到速率的 80%'
+    if (
+      form.port_security_reconcile_interval_seconds < 10 ||
+      form.port_security_reconcile_interval_seconds > 3600
+    )
+      return '端口安全协调周期需在 10 - 3600 秒之间'
+  }
   if (
     form.maintenance_vm_shutdown_timeout_seconds < 5 ||
     form.maintenance_vm_shutdown_timeout_seconds > 3600
@@ -213,6 +257,7 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     network_backend: form.network_backend || 'ovs',
     ovs_bridge: form.ovs_bridge,
     ovs_uplink: form.ovs_uplink,
+    elastic_cloud_uplink: form.elastic_cloud_uplink,
     ovs_dhcp_start: form.ovs_dhcp_start,
     ovs_dhcp_end: form.ovs_dhcp_end,
     subnet_prefix: form.subnet_prefix,
@@ -222,9 +267,23 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     external_nic: form.external_nic,
     max_burst_inbound: form.max_burst_inbound,
     max_burst_outbound: form.max_burst_outbound,
+    public_ipv6_sync_interval_seconds: form.public_ipv6_sync_interval_seconds,
+    ...(form.port_security_enabled
+      ? {
+          port_security_total_kpps: form.port_security_total_kpps,
+          port_security_total_burst_kpackets: form.port_security_total_burst_kpackets,
+          port_security_neighbor_pps: form.port_security_neighbor_pps,
+          port_security_neighbor_burst_packets: form.port_security_neighbor_burst_packets,
+          port_security_broadcast_pps: form.port_security_broadcast_pps,
+          port_security_broadcast_burst_packets: form.port_security_broadcast_burst_packets,
+          port_security_reconcile_interval_seconds:
+            form.port_security_reconcile_interval_seconds,
+        }
+      : {}),
     default_disk_iops_total: form.default_disk_iops_total,
     default_disk_iops_read: form.default_disk_iops_read,
     default_disk_iops_write: form.default_disk_iops_write,
+    scheduler_event_retention_hours: form.scheduler_event_retention_hours,
     dynamic_memory_scheduler_enabled: form.dynamic_memory_scheduler_enabled,
     dynamic_memory_interval_seconds: form.dynamic_memory_interval_seconds,
     dynamic_memory_host_reserve_mb: form.dynamic_memory_host_reserve_mb,
@@ -233,7 +292,6 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     dynamic_memory_reclaim_threshold_percent: form.dynamic_memory_reclaim_threshold_percent,
     dynamic_memory_cooldown_seconds: form.dynamic_memory_cooldown_seconds,
     dynamic_memory_observation_hours: form.dynamic_memory_observation_hours,
-    scheduler_event_retention_hours: form.scheduler_event_retention_hours,
     rescue_iso: form.rescue_iso,
     public_base_url: form.public_base_url,
     site_title: form.site_title?.trim() || 'QVMConsole',
@@ -242,6 +300,7 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     request_filter_enabled: form.request_filter_enabled,
     password_breach_check_enabled: form.password_breach_check_enabled,
     scheduled_password_breach_check_enabled: form.scheduled_password_breach_check_enabled,
+    scheduled_storage_trim_enabled: form.scheduled_storage_trim_enabled,
     maintenance_mode: form.maintenance_mode,
     maintenance_service_units:
       form.maintenance_service_units?.trim() || DEFAULT_MAINTENANCE_SERVICE_UNITS,
@@ -263,6 +322,7 @@ export function buildSettingsPayload(form: SettingsForm): Record<string, unknown
     spice_enabled_by_default: form.spice_enabled_by_default,
     igpu_passthrough_enabled: form.igpu_passthrough_enabled,
     hardware_passthrough_enabled: form.hardware_passthrough_enabled,
+    security_group_default_allow_all: form.security_group_default_allow_all,
   }
 }
 

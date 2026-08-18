@@ -6,7 +6,6 @@ import (
 
 	"kvm_console/service/network/vpc"
 	"kvm_console/service/storage/disk"
-	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 )
 
@@ -54,6 +53,7 @@ type Deps struct {
 	ListAllVPCStaticHosts         func() ([]OVSStaticHost, error)
 	GetOVSLeaseIPByMAC            func(mac string) string
 	ApplyVPCBindingToDomainXML    func(vmName, xml string) (string, bool, error)
+	PrepareVMPortSecurityBinding  func(owner, vmName string, switchID, securityGroupID uint, allowedIPv4, allowedIPv6 string) error
 
 	// ---- XML modification helpers ----
 	ApplyRTCConfigToDomainXML           func(xmlStr, offset, startDate, tplType string) (string, error)
@@ -167,11 +167,10 @@ type (
 	DiskIOPSTune          = disk.DiskIOPSTune
 )
 
-// Re-export memory and vm_xml types used in clone params
+// Re-export vm_xml types used in clone params
 type (
-	VMMemoryDynamicRequest = memory.VMMemoryDynamicRequest
-	VMGuestAgentConfig     = vm_xml.VMGuestAgentConfig
-	VMSMBIOS1Config        = vm_xml.VMSMBIOS1Config
+	VMGuestAgentConfig = vm_xml.VMGuestAgentConfig
+	VMSMBIOS1Config    = vm_xml.VMSMBIOS1Config
 )
 
 // Re-export constants from vm_xml

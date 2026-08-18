@@ -62,6 +62,8 @@ type CloneVmRequest struct {
 	MemoryDynamic        *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID             uint                              `json:"switch_id"`
 	SecurityGroupID      uint                              `json:"security_group_id"`
+	AllowedIPv4Addresses string                            `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                            `json:"allowed_ipv6_addresses"`
 	ExtraNics            []service.AddVMInterfaceRequest   `json:"extra_nics"`
 	StoragePoolID        string                            `json:"storage_pool_id"`
 	ExtraDisks           []service.ExtraDiskParam          `json:"extra_disks"`
@@ -120,6 +122,8 @@ type BatchCloneRequest struct {
 	SystemDiskIOPS      *service.DiskIOPSTune            `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
 	SwitchID            uint                            `json:"switch_id"`         // VPC 交换机 ID
 	SecurityGroupID     uint                            `json:"security_group_id"` // 安全组 ID
+	AllowedIPv4Addresses string                         `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                         `json:"allowed_ipv6_addresses"`
 	ExtraNics           []service.AddVMInterfaceRequest `json:"extra_nics"`
 	ExtraDisks          []service.ExtraDiskParam        `json:"extra_disks"`
 	HostDevices         []service.HostDeviceParam       `json:"host_devices"`              // count > 1 时不允许
@@ -289,6 +293,8 @@ func CloneVm(c *gin.Context) {
 		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
 		ExtraNics:            req.ExtraNics,
 		StoragePoolID:        req.StoragePoolID,
 		ExtraDisks:           req.ExtraDisks,
@@ -312,9 +318,6 @@ func CloneVm(c *gin.Context) {
 		return
 	}
 	params.DisableSystemInit = req.DisableSystemInit
-	if !isAdmin {
-		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
-	}
 
 	// 如果是普通用户，检查配额
 	if role == "user" {
@@ -331,8 +334,16 @@ func CloneVm(c *gin.Context) {
 			})
 			return
 		}
+		// 附加网口仅允许接入用户自己的交换机
+		if err := service.ValidateExtraNicsForUser(usernameStr, req.ExtraNics); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
+				"message": err.Error(),
+			})
+			return
+		}
 		// 仅当用户指定了交换机时才解析 VPC
-		if req.SwitchID != 0 {
+		if req.SwitchID != 0 || service.IsPortSecurityEnabled() {
 			switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 			if err != nil {
 				c.JSON(http.StatusForbidden, gin.H{
@@ -510,12 +521,14 @@ func BatchCloneVm(c *gin.Context) {
 		SystemDiskIOPS:      req.SystemDiskIOPS,
 		SwitchID:            req.SwitchID,
 		SecurityGroupID:     req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
 		ExtraNics:           req.ExtraNics,
 		ExtraDisks:          req.ExtraDisks,
-HostDevices:         req.HostDevices,
-				PreserveFnOSDeviceID: req.PreserveFnOSDeviceID,
-				FnOSDeviceID:         req.FnOSDeviceID,
-				IsAdmin:             isAdmin,
+		HostDevices:         req.HostDevices,
+		PreserveFnOSDeviceID: req.PreserveFnOSDeviceID,
+		FnOSDeviceID:         req.FnOSDeviceID,
+		IsAdmin:             isAdmin,
 		DisableSystemInit:   req.DisableSystemInit,
 		StaticIP:            req.StaticIP,
 		Gateway:             req.Gateway,
@@ -546,8 +559,16 @@ HostDevices:         req.HostDevices,
 			})
 			return
 		}
+		// 附加网口仅允许接入用户自己的交换机
+		if err := service.ValidateExtraNicsForUser(usernameStr, req.ExtraNics); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
+				"message": err.Error(),
+			})
+			return
+		}
 		// 仅当用户指定了交换机时才解析 VPC
-		if req.SwitchID != 0 {
+		if req.SwitchID != 0 || service.IsPortSecurityEnabled() {
 			switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 			if err != nil {
 				c.JSON(http.StatusForbidden, gin.H{

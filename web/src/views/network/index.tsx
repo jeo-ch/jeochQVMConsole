@@ -15,7 +15,26 @@ import {
   IconRefresh,
   IconSearch,
 } from '@douyinfe/semi-icons'
-import { checkOVSNetwork, repairOVSNetwork, type OvsPortList, type OvsStatus } from '@/api/ovs'
+import {
+  checkOVSNetwork,
+  disablePortSecurity,
+  disablePortMirror,
+  getPortMirrorOptions,
+  getPortMirrorStatus,
+  enablePortSecurity,
+  getPortSecurityStatus,
+  isolatePortSecurityPort,
+  preflightPortSecurity,
+  reconcilePortSecurity,
+  releasePortSecurityPort,
+  repairOVSNetwork,
+  type OvsPortList,
+  type OvsStatus,
+  type PortSecurityPreflight,
+  type PortSecurityStatus,
+  type PortMirrorOptions,
+  type PortMirrorStatus,
+} from '@/api/ovs'
 import {
   deleteNetworkBridge,
   getHostInterfaces,
@@ -33,6 +52,7 @@ import {
   getVPCSwitches,
   getVPCSwitchVMs,
   previewVPCACL,
+  reconfigureVPCSwitch,
   resetVPCSwitchTraffic,
   type VpcQuota,
   type VpcSecurityGroup,
@@ -40,6 +60,7 @@ import {
   type VpcSwitch,
 } from '@/api/vpc'
 import { useUserStore } from '@/stores/user'
+import { getTaskDetail } from '@/api/task'
 import { confirmModal } from '@/utils/confirm'
 import { copyTextWithFallback } from '@/utils/clipboard'
 import { ROLES } from '@/config/constants'
@@ -49,20 +70,20 @@ import SecurityGroupsTab from './components/SecurityGroupsTab'
 import AclTab from './components/AclTab'
 import SwitchDialog from './dialogs/SwitchDialog'
 import SwitchVMsDialog from './dialogs/SwitchVMsDialog'
-import BridgeDialog from './dialogs/BridgeDialog'
 import InterfaceConfigDialog from './dialogs/InterfaceConfigDialog'
 import SecurityGroupDialog from './dialogs/SecurityGroupDialog'
 import RuleDialog from './dialogs/RuleDialog'
+import PortMirrorDialog from './dialogs/PortMirrorDialog'
 import './network.css'
 
 /** 弹窗状态 */
 type DialogState =
   | { type: 'switch'; row?: VpcSwitch }
   | { type: 'switchVMs'; row: VpcSwitch }
-  | { type: 'bridge' }
   | { type: 'ifaceConfig'; name: string }
   | { type: 'group'; row?: VpcSecurityGroup }
-  | { type: 'rule'; group: VpcSecurityGroup }
+  | { type: 'rule'; group: VpcSecurityGroup; rule?: VpcSecurityGroupRule }
+  | { type: 'portMirror'; options: PortMirrorOptions }
   | null
 
 export default function NetworkPage() {
@@ -73,6 +94,7 @@ export default function NetworkPage() {
   const [usernameFilter, setUsernameFilter] = useState('')
   const [loading, setLoading] = useState(false)
   const [dialog, setDialog] = useState<DialogState>(null)
+  const [operatingSwitchIds, setOperatingSwitchIds] = useState<Set<number>>(() => new Set())
 
   // 交换机 / 安全组
   const [switches, setSwitches] = useState<VpcSwitch[]>([])
@@ -85,6 +107,12 @@ export default function NetworkPage() {
   const [hostInterfaces, setHostInterfaces] = useState<HostInterface[]>([])
   const [checking, setChecking] = useState(false)
   const [repairing, setRepairing] = useState(false)
+  const [portSecurity, setPortSecurity] = useState<PortSecurityStatus | null>(null)
+  const [portSecurityPreflight, setPortSecurityPreflight] = useState<PortSecurityPreflight | null>(null)
+  const [portSecurityAction, setPortSecurityAction] = useState('')
+  const [portMirror, setPortMirror] = useState<PortMirrorStatus | null>(null)
+  const [portMirrorAction, setPortMirrorAction] = useState('')
+  const [portMirrorLoading, setPortMirrorLoading] = useState(true)
   // ACL
   const [aclPreview, setAclPreview] = useState('')
   const [aclLoading, setAclLoading] = useState(false)
@@ -98,14 +126,16 @@ export default function NetworkPage() {
 
   // ==================== 数据加载 ====================
   const loadSwitches = useCallback(async () => {
-    const [switchRes, quotaRes, bridgeRes] = await Promise.all([
+    const [switchRes, quotaRes, bridgeRes, ifaceRes] = await Promise.all([
       getVPCSwitches(queryParams),
       getVPCQuota(queryParams),
       isAdmin ? getNetworkBridges() : Promise.resolve(null),
+      isAdmin ? getHostInterfaces() : Promise.resolve(null),
     ])
     setSwitches(switchRes.data || [])
     setQuota(quotaRes.data || null)
     if (isAdmin && bridgeRes) setBridges(bridgeRes.data || [])
+    if (isAdmin && ifaceRes) setHostInterfaces(ifaceRes.data || [])
   }, [queryParams, isAdmin])
 
   const loadSecurityGroups = useCallback(async () => {
@@ -113,17 +143,33 @@ export default function NetworkPage() {
     setSecurityGroups(res.data || [])
   }, [queryParams])
 
+  const loadPortMirror = useCallback(async () => {
+    setPortMirrorLoading(true)
+    setPortMirror(null)
+    try {
+      const response = await getPortMirrorStatus()
+      setPortMirror(response.data || null)
+    } catch {
+      // 请求层已提示，保留空状态以阻止在运行态未知时提交操作。
+    } finally {
+      setPortMirrorLoading(false)
+    }
+  }, [])
+
   const loadOverview = useCallback(async () => {
-    const [checkRes, bridgeRes, ifaceRes] = await Promise.all([
+    const [checkRes, bridgeRes, ifaceRes, portSecurityRes] = await Promise.all([
       checkOVSNetwork(),
       getNetworkBridges(),
       getHostInterfaces(),
+      getPortSecurityStatus(),
+      loadPortMirror(),
     ])
     setOvsStatus(checkRes.data?.status || null)
     setOvsPorts(checkRes.data?.ports || null)
     setBridges(bridgeRes.data || [])
     setHostInterfaces(ifaceRes.data || [])
-  }, [])
+    setPortSecurity(portSecurityRes.data || null)
+  }, [loadPortMirror])
 
   const loadACLPreview = useCallback(async () => {
     if (!isAdmin) return
@@ -221,7 +267,223 @@ export default function NetworkPage() {
     [loadOverview],
   )
 
+  const handlePortSecurityPreflight = useCallback(async () => {
+    setPortSecurityAction('preflight')
+    try {
+      const res = await preflightPortSecurity()
+      const data = res.data
+      setPortSecurityPreflight(data ? {
+        ...data,
+        capabilities: data.capabilities ?? [],
+        ports: data.ports ?? [],
+        issues: data.issues ?? [],
+      } : null)
+      if (res.data?.ready) Toast.success('端口安全预检通过')
+      else Toast.warning('预检完成，请先处理阻断项')
+      return !!res.data?.ready
+    } catch {
+      return false
+    } finally {
+      setPortSecurityAction('')
+    }
+  }, [])
+
+  const waitPortSecurityTask = useCallback(
+    async (taskId?: number) => {
+      if (!taskId) return
+      for (;;) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200))
+        const res = await getTaskDetail(taskId)
+        const task = res.data
+        if (!task || !['success', 'failed', 'canceled'].includes(task.status)) continue
+        if (task.status === 'success') Toast.success(task.message || '端口安全任务执行完成')
+        else Toast.error(task.message || '端口安全任务执行失败')
+        await loadOverview()
+        return
+      }
+    },
+    [loadOverview],
+  )
+
+  const handlePortSecurityToggle = useCallback(
+    async (enabled: boolean) => {
+      if (enabled) {
+        const ready = await handlePortSecurityPreflight()
+        if (!ready) return
+      }
+      const ok = await confirmModal({
+        title: enabled ? '启用端口安全防护' : '停用端口安全防护',
+        content: enabled
+          ? '系统将先隔离活动端口，再安装并校验身份、ARP/ND 与速率策略。确认提交启用任务？'
+          : '系统将移除本模块流表并恢复原有转发；异常端口会继续隔离。确认提交停用任务？',
+        okText: enabled ? '启用' : '停用',
+        danger: true,
+      })
+      if (!ok) return
+      setPortSecurityAction(enabled ? 'enable' : 'disable')
+      try {
+        const res = enabled ? await enablePortSecurity() : await disablePortSecurity()
+        Toast.success(res.message || '端口安全任务已提交')
+        await waitPortSecurityTask(res.data?.task_id)
+      } finally {
+        setPortSecurityAction('')
+      }
+    },
+    [handlePortSecurityPreflight, waitPortSecurityTask],
+  )
+
+  const handlePortSecurityReconcile = useCallback(async () => {
+    setPortSecurityAction('reconcile')
+    try {
+      const res = await reconcilePortSecurity()
+      Toast.success(res.message || '协调任务已提交')
+      await waitPortSecurityTask(res.data?.task_id)
+    } finally {
+      setPortSecurityAction('')
+    }
+  }, [waitPortSecurityTask])
+
+  const handlePortSecurityPortAction = useCallback(async (port: string, release: boolean) => {
+    const ok = await confirmModal({
+      title: release ? '释放端口' : '隔离端口',
+      content: `确定${release ? '释放' : '隔离'} OVS 端口 ${port}？`,
+      okText: release ? '释放' : '隔离',
+      danger: true,
+    })
+    if (!ok) return
+    setPortSecurityAction(`${release ? 'release' : 'isolate'}:${port}`)
+    try {
+      const res = release
+        ? await releasePortSecurityPort(port)
+        : await isolatePortSecurityPort(port)
+      Toast.success(res.message || '端口任务已提交')
+      await waitPortSecurityTask(res.data?.task_id)
+    } finally {
+      setPortSecurityAction('')
+    }
+  }, [waitPortSecurityTask])
+
+  const waitPortMirrorTask = useCallback(
+    async (taskId: number) => {
+      try {
+        for (;;) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1200))
+          const response = await getTaskDetail(taskId)
+          const task = response.data
+          if (!task || !['success', 'failed', 'canceled'].includes(task.status)) continue
+          if (task.status === 'success') Toast.success(task.message || '端口镜像任务执行完成')
+          else Toast.error(task.message || '端口镜像任务执行失败，运行态已回滚')
+          await loadOverview()
+          return
+        }
+      } finally {
+        setPortMirrorAction('')
+      }
+    },
+    [loadOverview],
+  )
+
+  const handlePortMirrorConfig = useCallback(async () => {
+    try {
+      const response = await getPortMirrorOptions()
+      setDialog({
+        type: 'portMirror',
+        options: { sources: response.data?.sources || [], targets: response.data?.targets || [] },
+      })
+    } catch {
+      // 请求层已提示
+    }
+  }, [])
+
+  const handlePortMirrorSubmitted = useCallback(
+    (taskId: number) => {
+      setPortMirrorAction('enable')
+      void waitPortMirrorTask(taskId)
+    },
+    [waitPortMirrorTask],
+  )
+
+  const handlePortMirrorDisable = useCallback(async () => {
+    const ok = await confirmModal({
+      title: '停用端口镜像',
+      content: '将删除本功能创建的 tc 规则、veth、OVS 端口和专用流表，确认继续？',
+      okText: '停用',
+      danger: true,
+    })
+    if (!ok) return
+    setPortMirrorAction('disable')
+    try {
+      const response = await disablePortMirror()
+      Toast.success(response.message || '端口镜像停用任务已提交')
+      if (response.data?.task_id) await waitPortMirrorTask(response.data.task_id)
+    } catch {
+      setPortMirrorAction('')
+    }
+  }, [waitPortMirrorTask])
+
   // ==================== 交换机操作 ====================
+  const monitorSwitchTask = useCallback(
+    async (switchId: number, taskId: number) => {
+      setOperatingSwitchIds((current) => new Set(current).add(switchId))
+      try {
+        for (;;) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1200))
+          const response = await getTaskDetail(taskId)
+          const task = response.data
+          if (!task || !['success', 'failed', 'canceled'].includes(task.status)) continue
+          if (task.status === 'success') Toast.success(task.message || '交换机重配置完成')
+          else Toast.error(task.message || '交换机重配置失败，旧网络已恢复')
+          await loadSwitches()
+          return
+        }
+      } finally {
+        setOperatingSwitchIds((current) => {
+          const next = new Set(current)
+          next.delete(switchId)
+          return next
+        })
+      }
+    },
+    [loadSwitches],
+  )
+
+  const handleMigrateLegacySwitch = useCallback(
+    async (row: VpcSwitch) => {
+      let vmNames: string[] = []
+      try {
+        const response = await getVPCSwitchVMs(row.id)
+        vmNames = (response.data || []).map((item) => item.vm_name)
+      } catch {
+        // 预览失败时仍由后端任务重新读取绑定清单。
+      }
+      const ok = await confirmModal({
+        title: '迁移为空交换机',
+        content: vmNames.length > 0
+          ? `将停止旧 DHCP/NAT，并把 ${vmNames.length} 台虚拟机的全部关联网口迁移到独立二层交换机：${vmNames.join('、')}。确认提交？`
+          : '将停止此历史交换机的 DHCP/NAT，并迁移为独立纯二层交换机。确认提交？',
+        okText: '提交迁移',
+        danger: true,
+      })
+      if (!ok) return
+      try {
+        const response = await reconfigureVPCSwitch(row.id, {
+          name: row.name,
+          uplink_mode: 'none',
+          uplink_if: '',
+          dhcp_enabled: false,
+          migrate_host_ip: false,
+          bridge_vlan_id: 0,
+        })
+        const taskId = response.data?.task_id
+        if (taskId) void monitorSwitchTask(row.id, taskId)
+        Toast.success(response.message || '交换机迁移任务已提交')
+      } catch {
+        // 请求层已提示
+      }
+    },
+    [monitorSwitchTask],
+  )
+
   const handleDeleteSwitch = useCallback(
     async (row: VpcSwitch) => {
       // 先查询该交换机下是否仍有虚拟机绑定
@@ -396,11 +658,22 @@ export default function NetworkPage() {
               hostInterfaces={hostInterfaces}
               checking={checking}
               repairing={repairing}
+              portSecurity={portSecurity}
+              portSecurityPreflight={portSecurityPreflight}
+              portSecurityAction={portSecurityAction}
+              portMirror={portMirror}
+              portMirrorAction={portMirrorAction}
+              portMirrorLoading={portMirrorLoading}
               onCheck={() => void handleCheck()}
               onRepair={() => void handleRepair()}
-              onCreateBridge={() => setDialog({ type: 'bridge' })}
               onDeleteBridge={(row) => void handleDeleteBridge(row)}
               onConfigInterface={(name) => setDialog({ type: 'ifaceConfig', name })}
+              onPortSecurityPreflight={() => void handlePortSecurityPreflight()}
+              onPortSecurityToggle={(enabled) => void handlePortSecurityToggle(enabled)}
+              onPortSecurityReconcile={() => void handlePortSecurityReconcile()}
+              onPortSecurityPortAction={(port, release) => void handlePortSecurityPortAction(port, release)}
+              onPortMirrorConfig={() => void handlePortMirrorConfig()}
+              onPortMirrorDisable={() => void handlePortMirrorDisable()}
             />
           </Tabs.TabPane>
         )}
@@ -415,6 +688,8 @@ export default function NetworkPage() {
             onDelete={(row) => void handleDeleteSwitch(row)}
             onResetTraffic={(row) => void handleResetSwitchTraffic(row)}
             onViewVMs={(row) => setDialog({ type: 'switchVMs', row })}
+            onMigrate={(row) => void handleMigrateLegacySwitch(row)}
+            operatingSwitchIds={operatingSwitchIds}
           />
         </Tabs.TabPane>
         <Tabs.TabPane tab="安全组策略" itemKey="securityGroups" icon={<IconLock />}>
@@ -426,6 +701,7 @@ export default function NetworkPage() {
             onEdit={(row) => setDialog({ type: 'group', row })}
             onDelete={(row) => void handleDeleteGroup(row)}
             onAddRule={(group) => setDialog({ type: 'rule', group })}
+            onEditRule={(group, rule) => setDialog({ type: 'rule', group, rule })}
             onDeleteRule={(rule) => void handleDeleteRule(rule)}
           />
         </Tabs.TabPane>
@@ -448,26 +724,19 @@ export default function NetworkPage() {
         <SwitchDialog
           row={dialog.row}
           isAdmin={isAdmin}
-          bridges={bridges}
+          hostInterfaces={hostInterfaces}
           quota={quota}
           defaultUsername={usernameFilter}
+          portSecurityEnabled={!!portSecurity?.enabled}
           onClose={() => setDialog(null)}
           onSaved={() => {
             void loadSwitches()
           }}
+          onTaskSubmitted={(switchId, taskId) => void monitorSwitchTask(switchId, taskId)}
         />
       )}
       {dialog?.type === 'switchVMs' && (
         <SwitchVMsDialog row={dialog.row} onClose={() => setDialog(null)} />
-      )}
-      {dialog?.type === 'bridge' && (
-        <BridgeDialog
-          hostInterfaces={hostInterfaces}
-          onClose={() => setDialog(null)}
-          onSaved={() => {
-            void loadOverview()
-          }}
-        />
       )}
       {dialog?.type === 'ifaceConfig' && (
         <InterfaceConfigDialog
@@ -492,12 +761,21 @@ export default function NetworkPage() {
       {dialog?.type === 'rule' && (
         <RuleDialog
           group={dialog.group}
+          rule={dialog.rule}
           switches={switches}
           securityGroups={securityGroups}
           onClose={() => setDialog(null)}
           onSaved={() => {
             void loadSecurityGroups()
           }}
+        />
+      )}
+      {dialog?.type === 'portMirror' && (
+        <PortMirrorDialog
+          options={dialog.options}
+          status={portMirror}
+          onClose={() => setDialog(null)}
+          onSubmitted={handlePortMirrorSubmitted}
         />
       )}
     </div>

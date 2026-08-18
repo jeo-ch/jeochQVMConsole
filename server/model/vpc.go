@@ -10,10 +10,23 @@ type VPCSwitch struct {
 	Name                       string    `json:"name" gorm:"index;not null;size:64"`
 	BridgeName                 string    `json:"bridge_name" gorm:"not null;default:br-ovs;size:64"`
 	BridgeMode                 string    `json:"bridge_mode" gorm:"not null;default:nat;size:16"`
+	DHCPEnabled                bool      `json:"dhcp_enabled" gorm:"default:false"`
+	UplinkMode                 string    `json:"uplink_mode" gorm:"not null;default:none;size:16"`
+	UplinkIF                   string    `json:"uplink_if" gorm:"size:64"`
+	UplinkGateway              string    `json:"uplink_gateway" gorm:"size:64"`
+	OwnsBridge                 bool      `json:"owns_bridge" gorm:"default:false"`
+	MigrateHostIP              bool      `json:"migrate_host_ip" gorm:"default:false"`
+	HostAddrs                  string    `json:"-" gorm:"size:512"`
+	HostGateway                string    `json:"-" gorm:"size:64"`
+	HostMetric                 string    `json:"-" gorm:"size:16"`
+	HostDNS                    string    `json:"-" gorm:"size:512"`
+	LegacyMigrationRequired    bool      `json:"legacy_migration_required" gorm:"default:false"`
 	BridgeVLANID               int       `json:"bridge_vlan_id" gorm:"default:0"`
 	AllowPromiscuous           bool      `json:"allow_promiscuous" gorm:"default:false"`
 	AllowMACChange             bool      `json:"allow_mac_change" gorm:"default:false"`
 	AllowForgedTransmits       bool      `json:"allow_forged_transmits" gorm:"default:false"`
+	IPv6SecurityEnabled        bool      `json:"ipv6_security_enabled" gorm:"default:false"`
+	TrustedIPv6Prefixes        string    `json:"trusted_ipv6_prefixes" gorm:"type:text"`
 	VLANID                     int       `json:"vlan_id" gorm:"uniqueIndex;not null"`
 	CIDR                       string    `json:"cidr" gorm:"column:cidr;size:32"`
 	GatewayIP                  string    `json:"gateway_ip" gorm:"not null;size:45"`
@@ -58,12 +71,13 @@ func (VPCSecurityGroup) TableName() string {
 	return "vpc_security_groups"
 }
 
-// VPCSecurityGroupRule 安全组规则。规则语义为允许，默认拒绝入站、允许出站。
+// VPCSecurityGroupRule 安全组规则。入站规则表示接收，出站规则表示拒绝；未命中规则时默认拒绝入站、允许出站。
 type VPCSecurityGroupRule struct {
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	SecurityGroupID uint      `json:"security_group_id" gorm:"index;not null"`
-	Direction       string    `json:"direction" gorm:"size:16;not null"` // ingress/egress
-	Protocol        string    `json:"protocol" gorm:"size:16;not null"`  // tcp/udp/icmp/all
+	Direction       string    `json:"direction" gorm:"size:16;not null"`                  // ingress/egress
+	AddressFamily   string    `json:"address_family" gorm:"size:8;not null;default:ipv4"` // ipv4/ipv6
+	Protocol        string    `json:"protocol" gorm:"size:16;not null"`                   // tcp/udp/icmp/icmpv6/all
 	PortStart       int       `json:"port_start" gorm:"default:0"`
 	PortEnd         int       `json:"port_end" gorm:"default:0"`
 	TargetType      string    `json:"target_type" gorm:"size:32;not null"` // cidr/switch/security_group
@@ -88,6 +102,8 @@ type VPCVMBinding struct {
 	NicModel             string    `json:"nic_model" gorm:"size:32;default:virtio"`
 	BandwidthInboundAvg  int       `json:"bandwidth_inbound_avg" gorm:"default:0"`
 	BandwidthOutboundAvg int       `json:"bandwidth_outbound_avg" gorm:"default:0"`
+	AllowedIPv4Addresses string    `json:"allowed_ipv4_addresses" gorm:"type:text"`
+	AllowedIPv6Addresses string    `json:"allowed_ipv6_addresses" gorm:"type:text"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }

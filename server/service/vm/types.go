@@ -29,8 +29,9 @@ type VmInfo struct {
 	MaxVCPU                  int                  `json:"max_vcpu"`           // CPU 热添加上限（0 表示未启用）
 	Memory                   int                  `json:"memory"`             // 内存（MB）
 	MaxMemory                int                  `json:"max_memory"`         // 最大内存（MB）
-	IP                       string               `json:"ip"`                 // IP 地址
+	IP                       string               `json:"ip"`                 // IP 地址（主 IP）
 	IPStatus                 string               `json:"ip_status"`          // IP 状态: ""=正常, "vlan_bridge"=VLAN桥接无法获取
+	IPs                      []string             `json:"ips"`                // 所有 IP 地址（IPv4 + IPv6，去重）
 	DiskSize                 string               `json:"disk_size"`          // 磁盘占用
 	Template                 string               `json:"template"`           // 模板来源
 	Network                  string               `json:"network"`            // 网络模式
@@ -44,17 +45,6 @@ type VmInfo struct {
 	CPUAffinity              string               `json:"cpu_affinity"`       // CPU 亲和性，如 "0,2,4"，空字符串表示未设置
 	CPUPercent               float64              `json:"cpu_percent"`        // CPU 使用率（来自缓存）
 	MemPercent               float64              `json:"mem_percent"`        // 内存使用率（来自缓存）
-	MemoryInitial            int                  `json:"memory_initial"`     // 动态内存启动/保障内存（MB）
-	MemoryMin                int                  `json:"memory_min"`         // 动态内存最小内存（MB）
-	MemoryMaxDynamic         int                  `json:"memory_max_dynamic"` // 动态内存最大内存（MB）
-	MemoryBackend            string               `json:"memory_backend"`     // 动态内存后端: balloon/virtio_mem
-	MemoryVirtioMemCurrent   int                  `json:"memory_virtio_mem_current"`
-	MemoryDynamicEnabled     bool                 `json:"memory_dynamic_enabled"`
-	MemoryAutoBalloon        bool                 `json:"memory_auto_balloon"`
-	MemoryPendingApply       bool                 `json:"memory_pending_apply"`
-	MemoryCompatMode         string               `json:"memory_compat_mode"`
-	MemoryBalloonSupported   bool                 `json:"memory_balloon_supported"`
-	MemoryBalloonStatus      string               `json:"memory_balloon_status"`
 	CreatedAt                string               `json:"created_at"`      // 创建时间
 	BandwidthIn              int                  `json:"bandwidth_in"`    // 下行平峰速率 Mbps
 	BandwidthOut             int                  `json:"bandwidth_out"`   // 上行平峰速率 Mbps
@@ -102,8 +92,6 @@ type VmDetail struct {
 	GuestAgent             *vm_xml.VMGuestAgentConfig    `json:"guest_agent"`        // QEMU Guest Agent 配置
 	GuestAgentStatus       *guest_agent.GuestAgentStatus `json:"guest_agent_status"` // QEMU Guest Agent 运行时状态
 	SMBIOS1                *vm_xml.VMSMBIOS1Config       `json:"smbios1"`            // SMBIOS 类型 1 信息
-	MemoryObservationUntil int64                         `json:"memory_observation_until"`
-	MemoryManualPauseUntil int64                         `json:"memory_manual_pause_until"`
 	PCIERootPorts          int                           `json:"pcie_root_ports"`       // pcie-root-port 数量（仅 q35/virt 机型）
 	FirmwareCompat         bool                          `json:"firmware_compat"`       // UEFI 固件兼容模式（ARM 专用）
 	DirectBoot             *vm_xml.DirectBootConfig      `json:"direct_boot,omitempty"` // 直接内核引导配置
@@ -154,6 +142,8 @@ type HostStats struct {
 	NetTxBytes      int64   `json:"net_tx_bytes"`
 	DiskRdBytes     int64   `json:"disk_rd_bytes"`
 	DiskWrBytes     int64   `json:"disk_wr_bytes"`
+	NetDevices      []model.HostNetDeviceStat  `json:"net_devices"`  // 各物理网卡累计收发字节
+	DiskDevices     []model.HostDiskDeviceStat `json:"disk_devices"` // 各物理硬盘累计读写字节
 	Hostname        string  `json:"hostname"`
 	Uptime          string  `json:"uptime"`
 	Arch            string  `json:"arch"` // 宿主机架构

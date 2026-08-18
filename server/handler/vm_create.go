@@ -51,6 +51,8 @@ type CreateVmRequest struct {
 	MemoryDynamic   *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID        uint                              `json:"switch_id"`
 	SecurityGroupID uint                              `json:"security_group_id"`
+	AllowedIPv4Addresses string                        `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                        `json:"allowed_ipv6_addresses"`
 	ExtraNics       []service.AddVMInterfaceRequest   `json:"extra_nics"`
 	StoragePoolID   string                            `json:"storage_pool_id"`
 	SystemDiskIOPS  *service.DiskIOPSTune             `json:"system_disk_iops"`          // 系统盘 IOPS 限制（仅管理员）
@@ -113,52 +115,53 @@ func CreateVm(c *gin.Context) {
 	}
 
 	params := &service.CreateVMParams{
-		Name:            req.Name,
-		Remark:          req.Remark,
-		VCPU:            req.VCPU,
-		MaxVCPU:         req.MaxVCPU,
-		RAM:             req.RAM,
-		DiskSize:        req.DiskSize,
-		DiskFormat:      req.DiskFormat,
-		DiskBus:         req.DiskBus,
-		OSVariant:       req.OSVariant,
-		ISOPath:         req.ISOPath,
-		ISOPaths:        req.ISOPaths,
-		FloppyImage:     req.FloppyImage,
-		NicModel:        req.NicModel,
-		Autostart:       req.Autostart,
-		Freeze:          req.Freeze,
-		APIC:            req.APIC,
-		PAE:             req.PAE,
-		RTCOffset:       req.RTCOffset,
-		RTCStartDate:    req.RTCStartDate,
-		GuestAgent:      req.GuestAgent,
-		SMBIOS1:         req.SMBIOS1,
-		OSType:          req.OSType,
-		MachineType:     req.MachineType,
-		BootType:        req.BootType,
-		Watchdog:        req.Watchdog,
-		BootOrder:       req.BootOrder,
-		VideoModel:      req.VideoModel,
-		SpiceEnabled:    req.SpiceEnabled,
-		CPUTopologyMode: req.CPUTopologyMode,
-		CPULimitPercent: req.CPULimitPercent,
-		CPUAffinity:     req.CPUAffinity,
-		VirtType:        req.VirtType,
-		Arch:            req.Arch,
-		MemoryDynamic:   req.MemoryDynamic,
-		SwitchID:        req.SwitchID,
-		SecurityGroupID: req.SecurityGroupID,
-		ExtraNics:       req.ExtraNics,
-		StoragePoolID:   req.StoragePoolID,
-		SystemDiskIOPS:  req.SystemDiskIOPS,
-		HostDevices:     req.HostDevices,
-		PCIERootPorts:   req.PCIERootPorts,
-		FirmwareCompat:  req.FirmwareCompat,
-		DirectBoot:      req.DirectBoot,
-		KVMHidden:       req.KVMHidden,
-		VendorID:        req.VendorID,
-		NestedVirt:      req.NestedVirt,
+		Name:                 req.Name,
+		Remark:               req.Remark,
+		VCPU:                 req.VCPU,
+		MaxVCPU:              req.MaxVCPU,
+		RAM:                  req.RAM,
+		DiskSize:             req.DiskSize,
+		DiskFormat:           req.DiskFormat,
+		DiskBus:              req.DiskBus,
+		OSVariant:            req.OSVariant,
+		ISOPath:              req.ISOPath,
+		ISOPaths:             req.ISOPaths,
+		FloppyImage:          req.FloppyImage,
+		NicModel:             req.NicModel,
+		Autostart:            req.Autostart,
+		Freeze:               req.Freeze,
+		APIC:                 req.APIC,
+		PAE:                  req.PAE,
+		RTCOffset:            req.RTCOffset,
+		RTCStartDate:         req.RTCStartDate,
+		GuestAgent:           req.GuestAgent,
+		SMBIOS1:              req.SMBIOS1,
+		OSType:               req.OSType,
+		MachineType:          req.MachineType,
+		BootType:             req.BootType,
+		Watchdog:             req.Watchdog,
+		BootOrder:            req.BootOrder,
+		VideoModel:           req.VideoModel,
+		SpiceEnabled:         req.SpiceEnabled,
+		CPUTopologyMode:      req.CPUTopologyMode,
+		CPULimitPercent:      req.CPULimitPercent,
+		CPUAffinity:          req.CPUAffinity,
+		VirtType:             req.VirtType,
+		Arch:                 req.Arch,
+		SwitchID:             req.SwitchID,
+		SecurityGroupID:      req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
+		ExtraNics:            req.ExtraNics,
+		StoragePoolID:        req.StoragePoolID,
+		SystemDiskIOPS:       req.SystemDiskIOPS,
+		HostDevices:          req.HostDevices,
+		PCIERootPorts:        req.PCIERootPorts,
+		FirmwareCompat:       req.FirmwareCompat,
+		DirectBoot:           req.DirectBoot,
+		KVMHidden:            req.KVMHidden,
+		VendorID:             req.VendorID,
+		NestedVirt:           req.NestedVirt,
 	}
 
 	// 额外磁盘
@@ -180,9 +183,6 @@ func CreateVm(c *gin.Context) {
 	usernameStr := username.(string)
 	role, _ := c.Get("role")
 	params.IsAdmin = role == "admin"
-	if role != "admin" {
-		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
-	}
 
 	// 如果是普通用户，检查配额
 	if role == "user" {
@@ -197,8 +197,16 @@ func CreateVm(c *gin.Context) {
 			})
 			return
 		}
+		// 附加网口仅允许接入用户自己的交换机
+		if err := service.ValidateExtraNicsForUser(usernameStr, req.ExtraNics); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{
+				"code":    403,
+				"message": err.Error(),
+			})
+			return
+		}
 		// 仅当用户指定了交换机或有网口配置时才解析 VPC
-		if req.SwitchID != 0 || len(req.ExtraNics) > 0 {
+		if req.SwitchID != 0 || len(req.ExtraNics) > 0 || service.IsPortSecurityEnabled() {
 			switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 			if err != nil {
 				c.JSON(http.StatusForbidden, gin.H{
@@ -273,46 +281,47 @@ func GetISOList(c *gin.Context) {
 
 // ImportDiskByPathRequest 管理员通过绝对路径导入磁盘请求
 type ImportDiskByPathRequest struct {
-	Name             string                            `json:"name" binding:"required"`
-	Remark           string                            `json:"remark"`
-	DiskPath         string                            `json:"disk_path"`
-	DiskFile         string                            `json:"disk_file"`
-	DiskSourceType   string                            `json:"disk_source_type"`
-	StoragePoolID    string                            `json:"storage_pool_id"`
-	VCPU             int                               `json:"vcpu" binding:"required"`
-	RAM              int                               `json:"ram" binding:"required"`
-	CopyDisk         bool                              `json:"copy_disk"`
-	InitType         string                            `json:"init_type"`
-	Hostname         string                            `json:"hostname"`
-	User             string                            `json:"user"`
-	Password         string                            `json:"password"`
-	Autostart        bool                              `json:"autostart"`
-	Freeze           bool                              `json:"freeze"`
-	APIC             *bool                             `json:"apic"`
-	PAE              *bool                             `json:"pae"`
-	RTCOffset        string                            `json:"rtc_offset"`
-	RTCStartDate     string                            `json:"rtc_startdate"`
-	GuestAgent       *vm_xml.VMGuestAgentConfig        `json:"guest_agent"`
-	SMBIOS1          *vm_xml.VMSMBIOS1Config           `json:"smbios1"`
-	BootType         string                            `json:"boot_type"`
-	MachineType      string                            `json:"machine_type"`
-	NicModel         string                            `json:"nic_model"`
-	VideoModel       string                            `json:"video_model"`
-	SpiceEnabled     *bool                             `json:"spice_enabled"` // 是否启用 SPICE 显示协议（不传=回退全局默认）
-	CPUTopologyMode  string                            `json:"cpu_topology_mode"`
-	CPULimitPercent  int                               `json:"cpu_limit_percent"`
-	CPUAffinity      string                            `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
-	TemplateRootPass string                            `json:"template_root_pass"`
-	TemplateUser     string                            `json:"template_user"`
-	MemoryDynamic    *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
-	SwitchID         uint                              `json:"switch_id"`
-	SecurityGroupID  uint                              `json:"security_group_id"`
-	ExtraNics        []service.AddVMInterfaceRequest   `json:"extra_nics"`
-	ExtraImportDisks []vmimport.ExtraImportDiskEntry   `json:"extra_import_disks"`
-	SystemDiskIOPS   *service.DiskIOPSTune             `json:"system_disk_iops"`     // 系统盘 IOPS 限制（仅管理员）
-	StartAfterImport *bool                             `json:"start_after_import"`   // 导入完成后是否开启虚拟机，不传默认 true
-	KVMHidden        *bool                             `json:"kvm_hidden,omitempty"` // 隐藏 KVM 标志
-	VendorID         string                            `json:"vendor_id,omitempty"`  // Hyper-V vendor_id 伪装
+	Name                 string                            `json:"name" binding:"required"`
+	Remark               string                            `json:"remark"`
+	DiskPath             string                            `json:"disk_path"`
+	DiskFile             string                            `json:"disk_file"`
+	DiskSourceType       string                            `json:"disk_source_type"`
+	StoragePoolID        string                            `json:"storage_pool_id"`
+	VCPU                 int                               `json:"vcpu" binding:"required"`
+	RAM                  int                               `json:"ram" binding:"required"`
+	CopyDisk             bool                              `json:"copy_disk"`
+	InitType             string                            `json:"init_type"`
+	Hostname             string                            `json:"hostname"`
+	User                 string                            `json:"user"`
+	Password             string                            `json:"password"`
+	Autostart            bool                              `json:"autostart"`
+	Freeze               bool                              `json:"freeze"`
+	APIC                 *bool                             `json:"apic"`
+	PAE                  *bool                             `json:"pae"`
+	RTCOffset            string                            `json:"rtc_offset"`
+	RTCStartDate         string                            `json:"rtc_startdate"`
+	GuestAgent           *vm_xml.VMGuestAgentConfig        `json:"guest_agent"`
+	SMBIOS1              *vm_xml.VMSMBIOS1Config           `json:"smbios1"`
+	BootType             string                            `json:"boot_type"`
+	MachineType          string                            `json:"machine_type"`
+	NicModel             string                            `json:"nic_model"`
+	VideoModel           string                            `json:"video_model"`
+	SpiceEnabled         *bool                             `json:"spice_enabled"` // 是否启用 SPICE 显示协议（不传=回退全局默认）
+	CPUTopologyMode      string                            `json:"cpu_topology_mode"`
+	CPULimitPercent      int                               `json:"cpu_limit_percent"`
+	CPUAffinity          string                            `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
+	TemplateRootPass     string                            `json:"template_root_pass"`
+	TemplateUser         string                            `json:"template_user"`
+	SwitchID             uint                              `json:"switch_id"`
+	SecurityGroupID      uint                              `json:"security_group_id"`
+	AllowedIPv4Addresses string                            `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                            `json:"allowed_ipv6_addresses"`
+	ExtraNics            []service.AddVMInterfaceRequest   `json:"extra_nics"`
+	ExtraImportDisks     []vmimport.ExtraImportDiskEntry   `json:"extra_import_disks"`
+	SystemDiskIOPS       *service.DiskIOPSTune             `json:"system_disk_iops"`     // 系统盘 IOPS 限制（仅管理员）
+	StartAfterImport     *bool                             `json:"start_after_import"`   // 导入完成后是否开启虚拟机，不传默认 true
+	KVMHidden            *bool                             `json:"kvm_hidden,omitempty"` // 隐藏 KVM 标志
+	VendorID             string                            `json:"vendor_id,omitempty"`  // Hyper-V vendor_id 伪装
 }
 
 // AdminImportDisk 管理员通过绝对路径导入磁盘创建虚拟机（异步任务）
@@ -360,47 +369,48 @@ func AdminImportDisk(c *gin.Context) {
 	}
 
 	params := &vmimport.ImportDiskByPathParams{
-		Name:             req.Name,
-		Remark:           req.Remark,
-		DiskPath:         req.DiskPath,
-		DiskFile:         req.DiskFile,
-		DiskSourceType:   req.DiskSourceType,
-		StoragePoolID:    req.StoragePoolID,
-		VCPU:             req.VCPU,
-		RAM:              req.RAM,
-		CopyDisk:         req.CopyDisk,
-		InitType:         req.InitType,
-		Hostname:         req.Hostname,
-		User:             req.User,
-		Password:         req.Password,
-		Autostart:        req.Autostart,
-		Freeze:           req.Freeze,
-		APIC:             req.APIC,
-		PAE:              req.PAE,
-		RTCOffset:        req.RTCOffset,
-		RTCStartDate:     req.RTCStartDate,
-		GuestAgent:       req.GuestAgent,
-		SMBIOS1:          req.SMBIOS1,
-		BootType:         req.BootType,
-		MachineType:      req.MachineType,
-		NicModel:         req.NicModel,
-		VideoModel:       req.VideoModel,
-		SpiceEnabled:     req.SpiceEnabled,
-		CPUTopologyMode:  req.CPUTopologyMode,
-		CPULimitPercent:  req.CPULimitPercent,
-		CPUAffinity:      req.CPUAffinity,
-		TemplateRootPass: req.TemplateRootPass,
-		TemplateUser:     req.TemplateUser,
-		MemoryDynamic:    req.MemoryDynamic,
-		SwitchID:         req.SwitchID,
-		SecurityGroupID:  req.SecurityGroupID,
-		ExtraNics:        req.ExtraNics,
-		ExtraImportDisks: req.ExtraImportDisks,
-		Username:         usernameStr,
-		SystemDiskIOPS:   req.SystemDiskIOPS,
-		StartAfterImport: startAfterImport,
-		KVMHidden:        req.KVMHidden,
-		VendorID:         req.VendorID,
+		Name:                 req.Name,
+		Remark:               req.Remark,
+		DiskPath:             req.DiskPath,
+		DiskFile:             req.DiskFile,
+		DiskSourceType:       req.DiskSourceType,
+		StoragePoolID:        req.StoragePoolID,
+		VCPU:                 req.VCPU,
+		RAM:                  req.RAM,
+		CopyDisk:             req.CopyDisk,
+		InitType:             req.InitType,
+		Hostname:             req.Hostname,
+		User:                 req.User,
+		Password:             req.Password,
+		Autostart:            req.Autostart,
+		Freeze:               req.Freeze,
+		APIC:                 req.APIC,
+		PAE:                  req.PAE,
+		RTCOffset:            req.RTCOffset,
+		RTCStartDate:         req.RTCStartDate,
+		GuestAgent:           req.GuestAgent,
+		SMBIOS1:              req.SMBIOS1,
+		BootType:             req.BootType,
+		MachineType:          req.MachineType,
+		NicModel:             req.NicModel,
+		VideoModel:           req.VideoModel,
+		SpiceEnabled:         req.SpiceEnabled,
+		CPUTopologyMode:      req.CPUTopologyMode,
+		CPULimitPercent:      req.CPULimitPercent,
+		CPUAffinity:          req.CPUAffinity,
+		TemplateRootPass:     req.TemplateRootPass,
+		TemplateUser:         req.TemplateUser,
+		SwitchID:             req.SwitchID,
+		SecurityGroupID:      req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
+		ExtraNics:            req.ExtraNics,
+		ExtraImportDisks:     req.ExtraImportDisks,
+		Username:             usernameStr,
+		SystemDiskIOPS:       req.SystemDiskIOPS,
+		StartAfterImport:     startAfterImport,
+		KVMHidden:            req.KVMHidden,
+		VendorID:             req.VendorID,
 	}
 
 	task, err := taskqueue.SubmitWithStruct(model.TaskTypeImportDisk, params, usernameStr)

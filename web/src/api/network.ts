@@ -222,6 +222,14 @@ export interface HostInterface {
   physical?: boolean
   managed_bridge?: string
   risk?: string
+  gateway?: string
+  effective_l3_if?: string
+  direct_switch_id?: number
+  direct_switch_name?: string
+  direct_vlan_ids?: number[]
+  nat_switch_count?: number
+  can_use_direct?: boolean
+  can_use_nat?: boolean
 }
 
 /** 获取宿主机网卡列表 */
@@ -246,6 +254,9 @@ export interface InterfaceConfig {
   reason?: string
   managed_bridge?: boolean
   migrate_host_ip?: boolean
+  addrs6?: string[]
+  gateway6?: string
+  metric6?: string
 }
 
 /** 获取接口 IP/DNS 配置 */
@@ -258,7 +269,7 @@ export function getInterfaceConfig(name: string) {
 /** 设置接口 IP/DNS 配置（clear=true 时清除全部静态配置） */
 export function setInterfaceConfig(
   name: string,
-  data: { addrs?: string; gateway?: string; dns?: string; clear?: boolean },
+  data: { addrs?: string; gateway?: string; dns?: string; clear?: boolean; addrs6?: string; gateway6?: string },
 ) {
   return service.put<unknown, ApiResponse<unknown>>(
     `/network/interfaces/${encodeURIComponent(name)}/config`,

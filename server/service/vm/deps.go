@@ -10,7 +10,6 @@ import (
 	"kvm_console/service/network/vpc"
 	"kvm_console/service/storage/disk"
 	"kvm_console/service/storage/pool"
-	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 )
 
@@ -66,6 +65,9 @@ type Deps struct {
 	StripRuntimeOnlyInterfaceElements func(block string) string
 	BridgeNameForSwitch               func(sw model.VPCSwitch) string
 	SwitchUsesDirectBridge            func(sw model.VPCSwitch) bool
+	IsPortSecurityEnabled             func() bool
+	ReconcileVMPortSecurity           func(vmName string) error
+	PrepareVMPortSecurityBinding      func(owner, vmName string, switchID, securityGroupID uint, allowedIPv4, allowedIPv6 string) error
 
 	// ---- Storage pool ----
 	GetAllISOs           func() ([]ISOFileInfo, error)
@@ -99,6 +101,8 @@ type Deps struct {
 
 	// ---- Host (additional) ----
 	CollectHostDiskIOBytes func() (int64, int64, error)
+	CollectHostNetDevices  func() ([]model.HostNetDeviceStat, error)
+	CollectHostDiskDevices func() ([]model.HostDiskDeviceStat, error)
 
 	// ---- Bandwidth (additional) ----
 	RebalanceUserBandwidth func(username string) error
@@ -202,9 +206,6 @@ type (
 
 	// VPC types
 	AddVMInterfaceRequest = vpc.AddVMInterfaceRequest
-
-	// Memory types
-	VMMemoryDynamicRequest = memory.VMMemoryDynamicRequest
 
 	// vm_xml types
 	VMGuestAgentConfig = vm_xml.VMGuestAgentConfig

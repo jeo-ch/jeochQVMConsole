@@ -1,17 +1,18 @@
 /**
  * 网口管理分区（编辑模式）
- * 主网口 VPC 绑定切换（交换机/安全组）+ 多网口列表（增删改，仅管理员）。
+ * 主网口 VPC 绑定切换（交换机/安全组）+ 多网口列表（增删改：管理员全量，弹性云用户自助管理本人虚拟机的附加网口）。
  * 轻量云用户禁止切换（VPC 由管理员分配）。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Banner, Button, Modal, Select, Table, Tag, Toast } from '@douyinfe/semi-ui'
-import { IconGlobe, IconPlus, IconRefresh } from '@douyinfe/semi-icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Banner, Button, Modal, Select, Table, Tag, Toast, Tooltip } from '@douyinfe/semi-ui'
+import { IconDelete, IconEditStroked, IconGlobe, IconPlus, IconRefresh } from '@douyinfe/semi-icons'
 import {
   bindVMVPC,
   getVMVPCBinding,
   listVMInterfaces,
   removeVMInterface,
   switchVMSecurityGroup,
+  vpcSwitchModeDetail,
   type VMInterfaceInfo,
   type VpcBindingInfo,
 } from '@/api/vpc'
@@ -30,9 +31,11 @@ import NicEditDialog from '../dialogs/NicEditDialog'
 interface NicManageSectionProps {
   vmName: string
   vmStatus: string
+  live: boolean
+  liveTick: number
 }
 
-export default function NicManageSection({ vmName, vmStatus }: NicManageSectionProps) {
+export default function NicManageSection({ vmName, vmStatus, live, liveTick }: NicManageSectionProps) {
   const { options } = useVmFormScope()
   const role = useUserStore((s) => s.role)
   const username = useUserStore((s) => s.username)
@@ -51,6 +54,7 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
     open: false,
     editing: null,
   })
+  const bindingSignatureRef = useRef('')
 
   const ownerUsername = useMemo(
     () => vpcInfo?.owner_username || vpcInfo?.binding?.username || username || '',
@@ -67,19 +71,27 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
 
   // ==================== 数据加载 ====================
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!vmName) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       const res = await getVMVPCBinding(vmName)
       const info = res.data || {}
       setVpcInfo(info)
       await options.loadVPCOptions()
-      // 主绑定表单回填
-      setBindSwitchId(info.binding?.switch_id || info.switch?.id || null)
-      setBindGroupId(info.binding?.security_group_id || info.security_group?.id || null)
-      // 多网口列表：管理员走专用接口；普通用户由 bindings 构建
-      if (isAdmin) {
+      // 服务端绑定确实变化时才回填，避免 SSE 心跳覆盖用户尚未保存的选择。
+      const bindingSignature = JSON.stringify({
+        binding: info.binding || null,
+        switch: info.switch || null,
+        securityGroup: info.security_group || null,
+      })
+      if (bindingSignatureRef.current !== bindingSignature) {
+        bindingSignatureRef.current = bindingSignature
+        setBindSwitchId(info.binding?.switch_id || info.switch?.id || null)
+        setBindGroupId(info.binding?.security_group_id || info.security_group?.id || null)
+      }
+      // 多网口列表：管理员与弹性云用户走专用接口；轻量云用户由 bindings 构建
+      if (isAdmin || !isLightweight) {
         try {
           const ifRes = await listVMInterfaces(vmName)
           setInterfaces(ifRes.data || [])
@@ -106,14 +118,14 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
         setRuntimeStatus(null)
       }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vmName, isAdmin])
+  }, [vmName, isAdmin, isLightweight])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (live) void refresh(liveTick > 0)
+  }, [refresh, live, liveTick])
 
   // ==================== 主网口 VPC 绑定 ====================
 
@@ -121,6 +133,10 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
     () => availableSwitches.find((item) => item.id === bindSwitchId) || null,
     [availableSwitches, bindSwitchId],
   )
+  /** 当前绑定的交换机不在可选列表中（如历史绑定的系统基础网络交换机对普通用户隐藏），引导用户改选自己的交换机 */
+  const boundSwitchUnavailable = !isLightweight
+    && bindSwitchId !== null
+    && !availableSwitches.some((item) => item.id === bindSwitchId)
   const bindIsBridge = bindSelectedSwitch?.bridge_mode === 'bridge'
   const bindSecurityGroups = useMemo(
     () => filterSecurityGroupsForSwitch(availableGroups, bindSelectedSwitch, ownerUsername, vmName),
@@ -189,7 +205,7 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
       return
     }
     if (bindIsBridge) {
-      Toast.warning('桥接直通交换机不使用安全组')
+      Toast.warning('二层交换机不使用安全组')
       return
     }
     if (!bindGroupId) {
@@ -266,6 +282,13 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
       render: (_: unknown, row: VMInterfaceInfo) => row.binding?.nic_model || 'virtio',
     },
     {
+      title: 'MAC 地址',
+      width: 165,
+      render: (_: unknown, row: VMInterfaceInfo) => (
+        <span className="qvm-mono">{row.mac || '-'}</span>
+      ),
+    },
+    {
       title: 'IP 地址',
       render: (_: unknown, row: VMInterfaceInfo) => {
         const ip = getInterfaceIP(row)
@@ -279,7 +302,7 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
           <span>
             {row.switch.name}{' '}
             <Tag size="small" color={row.switch.bridge_mode === 'bridge' ? 'orange' : 'blue'}>
-              {row.switch.bridge_mode === 'bridge' ? '桥接直通' : row.switch.cidr || '-'}
+              {vpcSwitchModeDetail(row.switch)}
             </Tag>
           </span>
         ) : (
@@ -293,7 +316,7 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
           return `${row.security_group.name}${row.security_group.is_default ? '（默认）' : ''}`
         }
         if (row.switch?.bridge_mode === 'bridge') {
-          return <span className="qvm-vf-tip">桥接直通不使用安全组</span>
+          return <span className="qvm-vf-tip">二层交换机不使用安全组</span>
         }
         return '-'
       },
@@ -320,20 +343,29 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
           <span className="qvm-vf-empty-text">未限制</span>
         ),
     },
-    ...(isAdmin
+    ...(!isLightweight
       ? [
           {
             title: '操作',
-            width: 140,
+            width: 100,
             align: 'center' as const,
             render: (_: unknown, row: VMInterfaceInfo) => (
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                <Button size="small" type="primary" theme="light" onClick={() => setNicDialog({ open: true, editing: row })}>
-                  编辑
-                </Button>
-                <Button size="small" type="danger" theme="light" onClick={() => handleRemoveNic(row)}>
-                  删除
-                </Button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                {/* 主网口通过上方 VPC 网络绑定管理，此处仅管理附加网口 */}
+                {(isAdmin || (row.binding?.interface_order ?? 0) > 0) && (
+                  <Tooltip content="编辑网口" position="top">
+                    <span className="qvm-act-ic" onClick={() => setNicDialog({ open: true, editing: row })}>
+                      <IconEditStroked />
+                    </span>
+                  </Tooltip>
+                )}
+                {(isAdmin || (row.binding?.interface_order ?? 0) > 0) && (
+                  <Tooltip content="删除网口" position="top">
+                    <span className="qvm-act-ic danger" onClick={() => handleRemoveNic(row)}>
+                      <IconDelete />
+                    </span>
+                  </Tooltip>
+                )}
               </div>
             ),
           },
@@ -353,11 +385,23 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
             description="轻量云服务器的 VPC 由管理员分配，不能自行切换。"
           />
         )}
+        {boundSwitchUnavailable && (
+          <Banner
+            type="warning"
+            closeIcon={null}
+            style={{ marginBottom: 12 }}
+            description={
+              vpcInfo?.switch?.is_system
+                ? '此虚拟机当前绑定系统基础网络交换机，普通用户已不可选择。请改选自己的交换机并保存绑定。'
+                : '此虚拟机当前绑定的交换机不在可选列表中，请改选自己的交换机并保存绑定。'
+            }
+          />
+        )}
         <div className="qvm-vf-grid-2">
           <FormField label="VPC 交换机" required>
             <Select
               style={{ width: '100%' }}
-              value={bindSwitchId ?? undefined}
+              value={boundSwitchUnavailable ? undefined : bindSwitchId ?? undefined}
               placeholder="选择交换机"
               filter
               disabled={isLightweight}
@@ -368,14 +412,14 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <span>{isAdmin && item.username ? `${item.username} / ${item.name}` : item.name}</span>
                     <Tag size="small" color={item.bridge_mode === 'bridge' ? 'orange' : 'blue'}>
-                      {item.bridge_mode === 'bridge' ? '桥接直通' : item.cidr}
+                      {vpcSwitchModeDetail(item)}
                     </Tag>
                   </div>
                 </Select.Option>
               ))}
             </Select>
             {bindIsBridge && (
-              <div className="qvm-vf-tip">桥接直通由上级路由器分配 IP，不使用内部 DHCP 和安全组</div>
+              <div className="qvm-vf-tip">二层交换机不使用面板 DHCP 和安全组；空交换机可由软路由提供地址</div>
             )}
           </FormField>
           {!bindIsBridge && (
@@ -413,7 +457,7 @@ export default function NicManageSection({ vmName, vmStatus }: NicManageSectionP
         title="网口列表"
         extra={
           <div style={{ display: 'flex', gap: 8 }}>
-            {isAdmin && (
+            {!isLightweight && (
               <Button size="small" type="primary" theme="light" icon={<IconPlus />} onClick={() => setNicDialog({ open: true, editing: null })}>
                 添加网口
               </Button>

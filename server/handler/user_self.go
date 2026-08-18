@@ -12,7 +12,6 @@ import (
 	"kvm_console/model"
 	"kvm_console/service"
 	libvirt_rpc "kvm_console/service/libvirt_rpc"
-	vm_memory "kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/taskqueue"
 )
@@ -208,9 +207,10 @@ type SelfCloneVmRequest struct {
 	SpiceEnabled         *bool                             `json:"spice_enabled"` // 是否启用 SPICE 显示协议（不传=回退全局默认）
 	CPUTopologyMode      string                            `json:"cpu_topology_mode"`
 	FirstBootRebootMode  string                            `json:"first_boot_reboot_mode"`
-	MemoryDynamic        *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID             uint                              `json:"switch_id"`
 	SecurityGroupID      uint                              `json:"security_group_id"`
+	AllowedIPv4Addresses string                            `json:"allowed_ipv4_addresses"`
+	AllowedIPv6Addresses string                            `json:"allowed_ipv6_addresses"`
 	ExtraNics            []service.AddVMInterfaceRequest   `json:"extra_nics"`
 	StoragePoolID        string                            `json:"storage_pool_id"`
 	ExtraDisks           []service.ExtraDiskParam          `json:"extra_disks"`
@@ -318,8 +318,16 @@ func SelfCloneVm(c *gin.Context) {
 		})
 		return
 	}
+	// 附加网口仅允许接入用户自己的交换机
+	if err := service.ValidateExtraNicsForUser(usernameStr, req.ExtraNics); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"code":    403,
+			"message": err.Error(),
+		})
+		return
+	}
 	// 仅当用户指定了交换机时才解析 VPC
-	if req.SwitchID != 0 {
+	if req.SwitchID != 0 || service.IsPortSecurityEnabled() {
 		switchID, securityGroupID, err := service.ResolveVPCForVMCreate(usernameStr, req.SwitchID, req.SecurityGroupID)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{
@@ -361,9 +369,10 @@ func SelfCloneVm(c *gin.Context) {
 		FirstBootRebootMode:  req.FirstBootRebootMode,
 		TemplateRootPass:     meta.RootPassword,
 		TemplateUser:         meta.TemplateUser,
-		MemoryDynamic:        sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM),
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
+		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
+		AllowedIPv6Addresses: req.AllowedIPv6Addresses,
 		ExtraNics:            req.ExtraNics,
 		StoragePoolID:        req.StoragePoolID,
 		ExtraDisks:           req.ExtraDisks,

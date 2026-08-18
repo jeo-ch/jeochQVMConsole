@@ -48,23 +48,23 @@ export const fallbackGroupDescription = '未归入以上模块的通用接口。
 
 // 复用的请求体描述
 const vmCreateBody =
-  'JSON: name, remark, vcpu, max_vcpu, ram, disk_size, disk_format, disk_bus, os_variant, iso_path, iso_paths[], floppy_image, nic_model, autostart, freeze, apic, pae, rtc_offset, rtc_startdate, guest_agent{enabled}, smbios1{base64,family,manufacturer,product,serial,sku,uuid,version}, os_type, machine_type, boot_type, watchdog, boot_order[], video_model(virtio/vga/vmvga/cirrus/ramfb/none，none=禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode(auto/single_socket/host_default), cpu_limit_percent(仅管理员, 0-100), virt_type(kvm/qemu), arch(x86_64/aarch64/riscv64), memory_dynamic{dynamic_enabled,memory_backend,memory_initial,memory_min,memory_max,memory_auto_balloon,memory_current}, switch_id, security_group_id, storage_pool_id, extra_disks[{size,format,bus,storage_pool_id}], host_devices[{pci_address}](仅管理员)'
+  'JSON: name, remark, vcpu, max_vcpu, ram, disk_size, disk_format, disk_bus, os_variant, iso_path, iso_paths[], floppy_image, nic_model, autostart, freeze, apic, pae, rtc_offset, rtc_startdate, guest_agent{enabled}, smbios1{base64,family,manufacturer,product,serial,sku,uuid,version}, os_type, machine_type, boot_type, watchdog, boot_order[], video_model(virtio/vga/vmvga/cirrus/ramfb/none，none=禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode(auto/single_socket/host_default), cpu_limit_percent(仅管理员, 0-100), virt_type(kvm/qemu), arch(x86_64/aarch64/riscv64), memory_dynamic{dynamic_enabled,memory_backend,memory_initial,memory_min,memory_max,memory_auto_balloon,memory_current}, switch_id, security_group_id, allowed_ipv4_addresses, allowed_ipv6_addresses, storage_pool_id, extra_nics[{switch_id,security_group_id,nic_model,allowed_ipv4_addresses,allowed_ipv6_addresses}], extra_disks[{size,format,bus,storage_pool_id}], host_devices[{pci_address}](仅管理员)'
 const selfVmCreateBody =
-  'JSON: name, remark, vcpu, max_vcpu, ram, disk_size, disk_format, disk_bus, os_variant, iso_path, iso_paths[], floppy_image, nic_model, autostart, freeze, apic, pae, rtc_offset, rtc_startdate, guest_agent{enabled}, smbios1{base64,family,manufacturer,product,serial,sku,uuid,version}, os_type, machine_type, boot_type, boot_order[], video_model(virtio/vga/vmvga/cirrus/ramfb/none，none=禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode(auto/single_socket/host_default), memory_dynamic{dynamic_enabled,memory_backend,memory_initial,memory_min,memory_max,memory_auto_balloon,memory_current}, switch_id, security_group_id, storage_pool_id, extra_disks[{size,format,bus,storage_pool_id}]'
+  'JSON: name, remark, vcpu, max_vcpu, ram, disk_size, disk_format, disk_bus, os_variant, iso_path, iso_paths[], floppy_image, nic_model, autostart, freeze, apic, pae, rtc_offset, rtc_startdate, guest_agent{enabled}, smbios1{base64,family,manufacturer,product,serial,sku,uuid,version}, os_type, machine_type, boot_type, boot_order[], video_model(virtio/vga/vmvga/cirrus/ramfb/none，none=禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode(auto/single_socket/host_default), memory_dynamic{dynamic_enabled,memory_backend,memory_initial,memory_min,memory_max,memory_auto_balloon,memory_current}, switch_id, security_group_id, allowed_ipv4_addresses, allowed_ipv6_addresses, storage_pool_id, extra_nics[{switch_id,security_group_id,nic_model,allowed_ipv4_addresses,allowed_ipv6_addresses}], extra_disks[{size,format,bus,storage_pool_id}]'
 const cloneBody =
-  'JSON: template/name, new_name/name, remark, vcpu, ram, disk_size, disk_bus, switch_id, security_group_id, storage_pool_id, extra_disks[{size,format,bus,storage_pool_id}], host_devices[{pci_address}](仅管理员), nic_model, video_model(支持none禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode, cpu_limit_percent(仅管理员, 0-100), first_boot_reboot_mode(normal/cold), preserve_fnos_device_id/fnos_device_id(FnOS 可选), autostart, freeze, apic, pae, rtc_offset, credentials, kvm_hidden(bool), vendor_id(str), nested_virt(bool,默认true) 等克隆表单字段'
+  'JSON: template/name, new_name/name, remark, vcpu, ram, disk_size, disk_bus, switch_id, security_group_id, allowed_ipv4_addresses, allowed_ipv6_addresses, extra_nics[{switch_id,security_group_id,nic_model,allowed_ipv4_addresses,allowed_ipv6_addresses}], storage_pool_id, extra_disks[{size,format,bus,storage_pool_id}], host_devices[{pci_address}](仅管理员), nic_model, video_model(支持none禁用虚拟显示), spice_enabled(bool,是否启用SPICE显示协议,不传=回退全局默认), cpu_topology_mode, cpu_limit_percent(仅管理员, 0-100), first_boot_reboot_mode(normal/cold), preserve_fnos_device_id/fnos_device_id(FnOS 可选), autostart, freeze, apic, pae, rtc_offset, credentials, kvm_hidden(bool), vendor_id(str), nested_virt(bool,默认true) 等克隆表单字段'
 const reinstallBody = 'JSON: template, disk_size, hostname, user, password, preserve_fnos_device_id, fnos_device_id'
 const scheduleBody = 'JSON: name, action(start/shutdown/destroy/reboot/delete), cron/execute_at, enabled, timezone, params'
 const portForwardBody =
   'JSON: vm_name, guest_ip, guest_port, host_port, protocol(tcp/udp), description, target_type, public_ip_id'
-const publicIPBody = 'JSON: address, cidr, gateway, iface, mac, vm_name, mode, remark, enabled 等公网 IP 配置字段'
+const publicIPBody = 'JSON: ip(IPv4/IPv6), cidr, gateway, uplink_if, supported_modes, status, remark'
 const firewallPolicyBody =
   'JSON: policy 或完整防火墙策略对象，包含 default_action, rules, region_rules, port_forward_policy 等'
 const vpcSwitchBody =
-  'JSON: name, cidr, gateway, dhcp_start, dhcp_end, vlan_id, dns, remark, username, bridge_mode, host_interface'
+  'JSON: name, username, internet_enabled(普通用户互联网开关), uplink_mode(none/physical/system), uplink_if, uplink_gateway, dhcp_enabled, migrate_host_ip, bridge_vlan_id, cidr, gateway_ip, dhcp_start, dhcp_end, ipv6_security_enabled, trusted_ipv6_prefixes, allow_promiscuous, allow_mac_change, allow_forged_transmits'
 const securityGroupBody = 'JSON: name, remark, username'
 const securityRuleBody =
-  'JSON: direction, protocol, port_start, port_end, target_type(cidr/switch/security_group), target_value, action, remark'
+  'JSON: direction(ingress=接收、egress=拒绝), address_family(ipv4/ipv6), protocol(tcp/udp/icmp/icmpv6/all), port_start, port_end, target_type(cidr/switch/security_group), target_value, remark；动作由方向固定推导，无需提交 action。'
 const templateMetaBody =
   'JSON: admin_name, display_name, clone_visible, disabled, category, vcpu, ram, disk_size, disk_bus, nic_model, video_model, cpu_topology_mode, first_boot_reboot_mode'
 const hostRuleBody = 'JSON: name, direction, protocol, port, source, action, enabled'
@@ -277,8 +277,8 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   },
   'POST /settings/storage/trim': {
     summary: '执行用户存储空间回收',
-    response: 'data: before_blocks, after_blocks, trimmed_bytes, trimmed_human。',
-    notes: ['执行 fstrim 与稀疏化回收，耗时较长。'],
+    response: 'data: task, reused。任务完成结果包含 image_path、mount_point、before_blocks、after_blocks、trimmed_bytes、trimmed_human。',
+    notes: ['异步执行 fstrim 与稀疏化回收；已有同类任务运行时复用现有任务。'],
   },
 
   // ==================== 虚拟机 ====================
@@ -331,7 +331,7 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'DELETE /vm/:name/schedules/:id': { summary: '删除虚拟机定时任务' },
   'GET /vm/:name/network/status': {
     summary: '读取 VM OVS 网络运行状态',
-    notes: ['每个接口含 ip / ip_source，优先 QEMU Guest Agent'],
+    notes: ['每个接口含 ip / ip_source，优先 QEMU Guest Agent；端口安全开启时同时返回策略模式、允许地址、meter、policing、丢包计数和异常原因。'],
   },
   'GET /vm/:name/network/diagnostics': { summary: '读取 VM 网络诊断信息' },
   'POST /vm/:name/network/capture': {
@@ -360,13 +360,24 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
     notes: ['运行中 VM 自动执行硬盘热迁移，关机 VM 自动执行冷迁移；成功后删除源硬盘文件。'],
   },
   'PUT /vm/:name/security-group': { summary: '切换 VM 安全组', body: 'JSON: security_group_id' },
-  'GET /vm/:name/interfaces': { summary: '列出 VM 所有网口' },
-  'POST /vm/:name/interfaces': { summary: '新增 VM 网口', body: 'JSON: switch_id, security_group_id, nic_model' },
+  'GET /vm/:name/interfaces': {
+    summary: '列出 VM 所有网口',
+    notes: ['普通用户仅可查看本人虚拟机（需先满足归属校验）。'],
+  },
+  'POST /vm/:name/interfaces': {
+    summary: '新增 VM 网口',
+    body: 'JSON: switch_id, security_group_id, nic_model, bandwidth_inbound_avg, bandwidth_outbound_avg, allowed_ipv4_addresses, allowed_ipv6_addresses',
+    notes: ['普通用户（弹性云）仅能操作本人虚拟机，且只能接入本人的非系统交换机；网口级速率限制仅管理员生效，轻量云用户不允许自助操作。'],
+  },
   'PUT /vm/:name/interfaces/:order': {
     summary: '更新 VM 指定网口',
-    body: 'JSON: switch_id, security_group_id, nic_model',
+    body: 'JSON: switch_id, security_group_id, nic_model, bandwidth_inbound_avg, bandwidth_outbound_avg, allowed_ipv4_addresses, allowed_ipv6_addresses',
+    notes: ['普通用户（弹性云）仅能更新本人虚拟机的附加网口（order > 0），主网口请使用 VPC 绑定接口；速率限制保留管理员配置。'],
   },
-  'DELETE /vm/:name/interfaces/:order': { summary: '删除 VM 指定网口' },
+  'DELETE /vm/:name/interfaces/:order': {
+    summary: '删除 VM 指定网口',
+    notes: ['普通用户（弹性云）仅能删除本人虚拟机的附加网口（order > 0），主网口由 VPC 绑定管理。'],
+  },
   'DELETE /vm/:name': { summary: '删除虚拟机', body: 'JSON: delete_disks, transfer_disks, transfer_user' },
   'POST /vm/:name/force-delete': {
     summary: '强制删除虚拟机',
@@ -537,7 +548,8 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'GET /template/list': { summary: '获取模板列表' },
   'POST /template/prepare': {
     summary: '制作模板',
-    body: 'JSON: vm_name, template_name, display_name, type, category, root_password, template_user',
+    body: 'JSON: vm_name, template_name, display_name, type, category, template_user, compress, transfer_mode(copy/move)。move 固定不压缩，成功后删除源虚拟机。',
+    notes: ['仅 transfer_mode=move 时触发 move_vm_disk_to_template 二次验证；未传 transfer_mode 时按 copy 兼容处理。'],
   },
   'POST /template/:name/prepare-linux': {
     summary: '预处理已导入 Linux 模板',
@@ -621,6 +633,15 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   },
   'GET /network/public-ips': { summary: '列出公网 IP' },
   'POST /network/public-ips': { summary: '新增公网 IP', body: publicIPBody },
+  'POST /network/public-ips/batch': {
+    summary: '批量新增公网 IP',
+    body: 'JSON: ips(数组), cidr, gateway, uplink_if, supported_modes, status, remark；除 IP 外字段对整批共用，重复或已存在的自动跳过。',
+  },
+	'GET /network/public-ips/ipv6-prefixes': { summary: '检测上联网卡公网 IPv6 前缀', query: ['uplink_if'] },
+	'POST /network/public-ips/ipv6-prefixes/import': {
+	  summary: '批量导入公网 IPv6 /128 地址',
+	  body: 'JSON: uplink_if, prefix, count, remark；地址绑定后使用 Proxy NDP 与精确路由。',
+	},
   'PUT /network/public-ips/:id': { summary: '更新公网 IP', body: publicIPBody },
   'DELETE /network/public-ips/:id': { summary: '删除公网 IP' },
   'POST /network/public-ips/:id/preview': { summary: '预览公网 IP 规则', body: publicIPBody },
@@ -633,10 +654,23 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'DELETE /network/captures/:task_id': { summary: '删除抓包会话文件' },
 
   // ==================== VPC ====================
-  'GET /vpc/quota': { summary: '读取 VPC 配额', query: ['username(管理员可选)'] },
+  'GET /vpc/quota': {
+    summary: '读取 VPC 配额与互联网可用状态',
+    query: ['username(管理员可选)'],
+    response: 'data: 配额分配与剩余量、internet_available（管理员是否已配置弹性云互联网出口）。',
+  },
   'GET /vpc/switches': { summary: '列出 VPC 交换机', query: ['username(管理员可选)'] },
   'POST /vpc/switches': { summary: '创建 VPC 交换机', body: vpcSwitchBody },
   'PUT /vpc/switches/:id': { summary: '更新 VPC 交换机', body: vpcSwitchBody },
+  'POST /vpc/switches/:id/reconfigure': {
+    summary: '异步重配置交换机拓扑',
+    body: vpcSwitchBody,
+    response: 'data: task_id, status。',
+    notes: [
+      '在线切换保留网口 MAC、型号、interface ID 和带宽配置；热插失败时任务恢复旧网络。',
+      '普通用户仅可重配置自己的交换机；internet_enabled=true 时后端强制使用管理员设置的弹性云出口，并启用托管 DHCP/NAT。',
+    ],
+  },
   'POST /vpc/switches/:id/traffic/reset': { summary: '重置交换机流量统计' },
   'DELETE /vpc/switches/:id': { summary: '删除 VPC 交换机' },
   'GET /vpc/switches/:id/vms': { summary: '获取交换机下的 VM 列表' },
@@ -645,6 +679,7 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'PUT /vpc/security-groups/:id': { summary: '更新安全组', body: securityGroupBody },
   'DELETE /vpc/security-groups/:id': { summary: '删除安全组' },
   'POST /vpc/security-groups/:id/rules': { summary: '新增安全组规则', body: securityRuleBody },
+  'PUT /vpc/security-groups/rules/:id': { summary: '编辑安全组规则', body: securityRuleBody },
   'DELETE /vpc/security-groups/rules/:id': { summary: '删除安全组规则' },
   'GET /vpc/acl/preview': { summary: '预览 VPC ACL 规则', response: 'data: ACL 预览文本或结构。' },
   'POST /vpc/acl/apply': { summary: '应用 VPC ACL 规则' },
@@ -691,6 +726,35 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'GET /ovs/leases': { summary: '读取 DHCP 租约' },
   'POST /ovs/check': { summary: '检查 OVS 网络' },
   'POST /ovs/repair': { summary: '修复 OVS 网络' },
+  'GET /ovs/port-security/status': {
+    summary: '读取端口安全总状态与逐端口诊断',
+    response: 'data: enabled, healthy, applied_ports, compatible_ports, isolated_ports, ports[], issues[], last_reconciled。',
+  },
+  'POST /ovs/port-security/preflight': {
+    summary: '预检端口安全能力与地址资料',
+    notes: ['只读检查，不切换总开关，也不替换现有流表。'],
+  },
+  'POST /ovs/port-security/enable': { summary: '异步启用端口安全防护' },
+  'POST /ovs/port-security/disable': { summary: '异步停用端口安全防护' },
+  'POST /ovs/port-security/reconcile': { summary: '异步协调全部端口安全策略' },
+  'POST /ovs/port-security/ports/:port/isolate': { summary: '异步手工隔离 OVS 端口' },
+  'POST /ovs/port-security/ports/:port/release': { summary: '异步释放手工隔离的 OVS 端口' },
+  'GET /ovs/port-mirror/options': {
+    summary: '读取端口镜像源接口和目标空交换机选项',
+    response: 'data: sources[], targets[]。源接口会标注 NAT 前后位置与默认路由风险。',
+  },
+  'GET /ovs/port-mirror/status': {
+    summary: '读取端口镜像运行状态与实时计数',
+    response: 'data: enabled, healthy, source_interfaces[], targets[], sources[], target_stats[], ingress, egress, ovs_packets, issues。',
+  },
+  'POST /ovs/port-mirror/enable': {
+    summary: '异步启用或更新端口镜像',
+    body: 'JSON: source_interfaces[], target_switch_ids[], direction(ingress/egress/both)。',
+    notes: ['支持多来源和多目标的连接矩阵；只允许目标为空交换机；操作前建立 systemd 自动回滚看门狗并要求二次验证。'],
+  },
+  'POST /ovs/port-mirror/disable': {
+    summary: '异步停用端口镜像并清理运行态',
+  },
 
   // ==================== 存储池 ====================
   'GET /storage-pool/list': { summary: '获取存储池列表' },
@@ -713,18 +777,18 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'GET /nodes': { summary: '获取节点列表' },
   'POST /nodes': {
     summary: '添加节点',
-    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user, ssh_password, enabled',
+    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, enabled',
   },
   'PUT /nodes/:id': {
     summary: '更新节点',
-    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user, ssh_password, enabled；密钥留空表示不修改',
+    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, enabled；密钥留空表示不修改',
   },
   'DELETE /nodes/:id': { summary: '删除节点' },
   'POST /nodes/:id/probe': { summary: '探测节点能力' },
   'GET /nodes/:id/migration-options': {
     summary: '加载 VM 迁移表单选项',
     query: ['vm_name'],
-    notes: ['返回自动迁移模式、目标存储、目标用户处理方式；目标已有同名用户时才返回该用户下的 VPC/安全组。'],
+    notes: ['返回自动迁移模式、目标存储、目标用户处理方式；目标节点 SSH 用户必须为 root；目标已有同名用户时才返回该用户下的 VPC/安全组。'],
   },
   'POST /migration/adopt-vm': {
     summary: '目标面板接管迁移 VM',

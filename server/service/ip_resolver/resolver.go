@@ -107,8 +107,7 @@ func GetVMIP(name string, isRunning bool) string {
 			} else if len(allMatches) > 1 {
 				for i := len(allMatches) - 1; i >= 0; i-- {
 					ip := allMatches[i][1]
-					pingResult := utils.ExecCommandWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", ip)
-					if pingResult.ExitCode == 0 {
+					if quietPingIP(ip) {
 						return ip
 					}
 				}
@@ -216,8 +215,7 @@ func getVMIPFromDomifaddrSource(name, source string, ipRe *regexp.Regexp, cidr s
 	}
 	if verifyPing {
 		for i := len(candidates) - 1; i >= 0; i-- {
-			pingResult := utils.ExecCommandWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", candidates[i])
-			if pingResult.ExitCode == 0 {
+			if quietPingIP(candidates[i]) {
 				return candidates[i]
 			}
 		}
@@ -240,8 +238,7 @@ func execDomifaddrARP(name string, ipRe *regexp.Regexp) string {
 	}
 	for i := len(allMatches) - 1; i >= 0; i-- {
 		ip := allMatches[i][1]
-		pingResult := utils.ExecCommandWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", ip)
-		if pingResult.ExitCode == 0 {
+		if quietPingIP(ip) {
 			return ip
 		}
 	}
@@ -263,13 +260,21 @@ func GetHostNeighborIPByMAC(mac, cidr string, verifyPing bool) string {
 	}
 	if verifyPing {
 		for i := len(candidates) - 1; i >= 0; i-- {
-			pingResult := utils.ExecCommandWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", candidates[i])
-			if pingResult.ExitCode == 0 {
+			if quietPingIP(candidates[i]) {
 				return candidates[i]
 			}
 		}
 	}
 	return candidates[len(candidates)-1]
+}
+
+func quietPingIP(value string) bool {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	// IPv6 链路本地地址必须携带接口作用域；无作用域时跳过探测，避免产生无意义错误日志。
+	if ip == nil || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	return utils.ExecCommandQuietWithTimeout("ping", 2*time.Second, "-c", "1", "-W", "1", value).ExitCode == 0
 }
 
 func parseHostNeighborIPsByMAC(text, mac, cidr string) []string {
@@ -415,6 +420,65 @@ func getAllHostNeighborMacIPs(bridge string) map[string]string {
 		}
 	}
 	return m
+}
+
+// GetAllVMIPs 获取虚拟机所有 IP 地址（IPv4 + IPv6），去重后返回
+// 优先通过 Guest Agent 获取，失败则通过 virsh domifaddr 解析
+func GetAllVMIPs(name string, isRunning bool) []string {
+	seen := make(map[string]bool)
+	var ips []string
+
+	addIP := func(ip string) {
+		ip = strings.TrimSpace(ip)
+		if ip == "" || seen[ip] {
+			return
+		}
+		parsed := net.ParseIP(ip)
+		if parsed == nil || parsed.IsLoopback() || parsed.IsLinkLocalUnicast() {
+			return
+		}
+		seen[ip] = true
+		ips = append(ips, ip)
+	}
+
+	// 方式1: Guest Agent（最准确，同时支持 IPv4 和 IPv6）
+	if isRunning {
+		agentIPs := guest_agent.GetVMAllAgentIPs(name)
+		for _, ip := range agentIPs {
+			addIP(ip)
+		}
+		if len(ips) > 0 {
+			return ips
+		}
+	}
+
+	// 方式2: virsh domifaddr（默认 source，同时显示 IPv4 和 IPv6）
+	ipRe := regexp.MustCompile(`(?:ipv4\s+(\S+)|ipv6\s+(\S+))`)
+	result := utils.ExecCommandQuiet("virsh", "domifaddr", name)
+	if result.Error == nil {
+		matches := ipRe.FindAllStringSubmatch(result.Stdout, -1)
+		for _, m := range matches {
+			if len(m) >= 3 {
+				if m[1] != "" {
+					addIP(strings.SplitN(m[1], "/", 2)[0])
+				} else if m[2] != "" {
+					addIP(strings.SplitN(m[2], "/", 2)[0])
+				}
+			}
+		}
+		if len(ips) > 0 {
+			return ips
+		}
+	}
+
+	// 方式3: 如果只有一个 IP，作为兜底
+	if isRunning {
+		if ip := GetVMIP(name, true); ip != "" {
+			addIP(ip)
+		}
+	}
+
+	return ips
 }
 
 // init 初始化日志

@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-08T13:29:18.093Z",
-  "count": 323,
+  "generated_at": "2026-08-18T01:51:02.054Z",
+  "count": 342,
   "endpoints": [
     {
       "method": "POST",
@@ -1048,6 +1048,72 @@
       "comment": ""
     },
     {
+      "method": "DELETE",
+      "path": "/network/public-ips/batch",
+      "handler": "BatchDeletePublicIPs",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "delete_public_ip",
+      "comment": "批量删除公网 IP（已绑定的自动跳过）"
+    },
+    {
+      "method": "POST",
+      "path": "/network/public-ips/batch",
+      "handler": "BatchCreatePublicIPs",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "批量新增公网 IP（共用除 IP 外的字段）"
+    },
+    {
+      "method": "POST",
+      "path": "/network/public-ips/batch/bind",
+      "handler": "BatchBindPublicIPs",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "bind_public_ip",
+      "comment": "批量绑定公网 IP（高风险，任务队列）"
+    },
+    {
+      "method": "POST",
+      "path": "/network/public-ips/batch/unbind",
+      "handler": "BatchUnbindPublicIPs",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "unbind_public_ip",
+      "comment": "批量解绑公网 IP（高风险，任务队列）"
+    },
+    {
+      "method": "GET",
+      "path": "/network/public-ips/ipv6-prefixes",
+      "handler": "DiscoverPublicIPv6Prefixes",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "检测上联网卡公网 IPv6 前缀"
+    },
+    {
+      "method": "POST",
+      "path": "/network/public-ips/ipv6-prefixes/import",
+      "handler": "ImportPublicIPv6Prefix",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "批量导入公网 IPv6 /128 地址资源"
+    },
+    {
       "method": "POST",
       "path": "/network/static-ip/bind",
       "handler": "BindStaticIP",
@@ -1189,6 +1255,127 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-mirror/disable",
+      "handler": "DisablePortMirror",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "disable_port_mirror",
+      "comment": "异步停用端口镜像并清理运行态"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-mirror/enable",
+      "handler": "EnablePortMirror",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "enable_port_mirror",
+      "comment": "异步启用端口镜像"
+    },
+    {
+      "method": "GET",
+      "path": "/ovs/port-mirror/options",
+      "handler": "GetPortMirrorOptions",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "获取端口镜像源接口和目标空交换机"
+    },
+    {
+      "method": "GET",
+      "path": "/ovs/port-mirror/status",
+      "handler": "GetPortMirrorStatus",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "获取端口镜像实时状态与计数"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/disable",
+      "handler": "DisablePortSecurity",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "异步停用端口安全"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/enable",
+      "handler": "EnablePortSecurity",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "异步启用端口安全"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/ports/:port/isolate",
+      "handler": "IsolatePortSecurityPort",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "异步隔离指定 OVS 端口"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/ports/:port/release",
+      "handler": "ReleasePortSecurityPort",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "异步释放指定 OVS 端口"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/preflight",
+      "handler": "PreflightPortSecurity",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "只读预检端口安全能力和配置"
+    },
+    {
+      "method": "POST",
+      "path": "/ovs/port-security/reconcile",
+      "handler": "ReconcilePortSecurity",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "异步协调全部端口策略"
+    },
+    {
+      "method": "GET",
+      "path": "/ovs/port-security/status",
+      "handler": "GetPortSecurityStatus",
+      "auth": "jwt",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "获取端口安全状态与端口诊断"
     },
     {
       "method": "GET",
@@ -2144,7 +2331,7 @@
       "admin": true,
       "elasticOnly": true,
       "vmAccess": false,
-      "highRisk": "",
+      "highRisk": "move_vm_disk_to_template",
       "comment": ""
     },
     {
@@ -3490,6 +3677,17 @@
       "comment": ""
     },
     {
+      "method": "PUT",
+      "path": "/vpc/security-groups/rules/:id",
+      "handler": "UpdateVPCSecurityGroupRule",
+      "auth": "jwt",
+      "admin": false,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "编辑安全组规则（保存后重建 VPC ACL）"
+    },
+    {
       "method": "GET",
       "path": "/vpc/switches",
       "handler": "ListVPCSwitches",
@@ -3508,7 +3706,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
-      "highRisk": "",
+      "highRisk": "create_vpc_switch_physical_uplink",
       "comment": ""
     },
     {
@@ -3519,7 +3717,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
-      "highRisk": "",
+      "highRisk": "delete_vpc_switch_physical_uplink",
       "comment": ""
     },
     {
@@ -3532,6 +3730,17 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
+    },
+    {
+      "method": "POST",
+      "path": "/vpc/switches/:id/reconfigure",
+      "handler": "ReconfigureVPCSwitch",
+      "auth": "jwt",
+      "admin": false,
+      "elasticOnly": true,
+      "vmAccess": false,
+      "highRisk": "vpc_switch_reconfigure",
+      "comment": "异步重配置交换机拓扑"
     },
     {
       "method": "POST",

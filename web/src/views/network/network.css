@@ -141,6 +141,78 @@
 .net-card-body {
   padding: 14px 18px;
 }
+.net-port-security-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.net-port-security-title {
+  color: var(--qvm-text-1);
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.net-port-security-collapse {
+  border-top: 1px solid var(--qvm-stroke);
+}
+.net-port-security-collapse-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--qvm-text-1);
+  font-weight: 600;
+}
+.net-port-security-collapse .semi-collapse-header {
+  padding: 11px 18px;
+}
+.net-port-security-collapse .semi-collapse-content {
+  padding: 0;
+}
+.net-preflight {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--qvm-stroke);
+  border-radius: 10px;
+  background: var(--qvm-hover-bg);
+}
+.net-preflight.ready {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.net-preflight.blocked {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.net-preflight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--qvm-text-1);
+  font-size: 13px;
+}
+.net-preflight-head span {
+  color: var(--qvm-text-2);
+  font-weight: 400;
+}
+.net-preflight-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+  color: var(--qvm-text-1);
+  font-size: 12px;
+}
+.net-preflight-issues > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.net-port-addresses {
+  color: var(--qvm-text-1);
+  font-size: 11.5px;
+  line-height: 1.55;
+  word-break: break-all;
+}
 .net-info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -401,6 +473,196 @@ body[theme-mode='dark'] .net-info-value,
 body[theme-mode='dark'] .net-rule-title {
   color: #b8c1cf;
 }
+body[theme-mode='dark'] .net-port-security-title,
+body[theme-mode='dark'] .net-port-security-collapse-title,
+body[theme-mode='dark'] .net-preflight-head,
+body[theme-mode='dark'] .net-preflight-issues,
+body[theme-mode='dark'] .net-port-addresses {
+  color: #b8c1cf;
+}
+
+/* ==================== 端口镜像 ==================== */
+.net-port-mirror-card {
+  margin-bottom: 16px;
+}
+.net-port-mirror-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.net-port-mirror-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  color: var(--qvm-text-2);
+  font-size: 13px;
+}
+.net-port-mirror-route {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--qvm-text-1);
+  font-weight: 600;
+}
+.net-port-mirror-arrow {
+  color: var(--semi-color-primary);
+  font-size: 18px;
+}
+.net-port-mirror-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  color: var(--qvm-text-2);
+  font-size: 12.5px;
+}
+.net-port-mirror-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.net-port-mirror-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+}
+.net-port-mirror-option > span:last-child {
+  color: var(--qvm-text-2);
+  font-size: 12px;
+}
+.net-port-mirror-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--qvm-text-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.net-port-mirror-selected-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--qvm-stroke);
+  border-radius: 8px;
+  background: var(--qvm-hover-bg);
+}
+.net-port-mirror-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+.net-port-mirror-detail-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--qvm-stroke);
+  border-radius: 8px;
+  color: var(--qvm-text-2);
+  font-size: 12px;
+}
+.net-port-mirror-detail-item strong {
+  color: var(--qvm-text-1);
+}
+body[theme-mode='dark'] .net-port-mirror-route,
+body[theme-mode='dark'] .net-port-mirror-form {
+  color: #b8c1cf;
+}
+body[theme-mode='dark'] .net-port-mirror-detail-item strong {
+  color: #b8c1cf;
+}
+
+/* ==================== 创建交换机弹窗：两列折叠布局 ==================== */
+.net-switch-mode-banner {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--semi-color-primary) 24%, var(--qvm-stroke));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--semi-color-primary) 7%, var(--qvm-card-bg));
+  color: var(--qvm-text-1);
+}
+.net-switch-mode-banner strong {
+  color: var(--semi-color-primary);
+  font-size: 15px;
+}
+.net-switch-mode-banner small {
+  color: var(--qvm-text-2);
+  line-height: 1.55;
+}
+.net-switch-inline-note {
+  padding: 12px 14px;
+  border: 1px dashed var(--qvm-stroke);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--qvm-card-bg) 88%, var(--semi-color-fill-0));
+  color: var(--qvm-text-1);
+  line-height: 1.65;
+}
+.net-switch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  align-items: start;
+}
+.net-switch-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+/* Modal 内紧凑折叠面板（去除默认边框、压缩 padding） */
+.net-switch-collapse {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+.net-switch-collapse + .net-switch-collapse {
+  margin-top: 4px;
+}
+.net-switch-collapse .semi-collapse-header {
+  padding: 6px 4px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--qvm-stroke);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--qvm-text-2);
+}
+.net-switch-collapse .semi-collapse-content {
+  padding: 10px 0 4px;
+}
+.net-switch-collapse-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--qvm-text-1);
+  font-weight: 600;
+}
+/* 配额子项 2x2 紧凑网格（减少纵向高度） */
+.net-switch-quota-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+/* 深色模式：折叠标题柔和灰 */
+body[theme-mode='dark'] .net-switch-collapse-title {
+  color: #b8c1cf;
+}
+body[theme-mode='dark'] .net-switch-mode-banner,
+body[theme-mode='dark'] .net-switch-inline-note {
+  color: #b8c1cf;
+}
 
 /* ==================== 响应式 ==================== */
 @media (max-width: 720px) {
@@ -412,5 +674,12 @@ body[theme-mode='dark'] .net-rule-title {
   }
   .net-stat-value {
     font-size: 15px;
+  }
+  .net-switch-grid {
+    grid-template-columns: 1fr;
+  }
+  .net-switch-mode-banner {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

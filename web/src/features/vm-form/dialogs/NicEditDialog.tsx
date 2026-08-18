@@ -1,11 +1,14 @@
 /**
- * 网口编辑弹窗（编辑模式 · 仅管理员）
- * 添加 / 编辑虚拟机网口：网卡型号 + VPC 交换机 + 安全组 + 上下行速率限制。
+ * 网口编辑弹窗（编辑模式 · 管理员与弹性云用户）
+ * 添加 / 编辑虚拟机网口：网卡型号 + VPC 交换机 + 安全组 + 上下行速率限制（速率限制仅管理员可见）。
+ * 普通用户仅能选择自己的交换机，后端按用户侧规则校验。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Divider, InputNumber, Modal, Select, Tag, Toast } from '@douyinfe/semi-ui'
+import { Divider, InputNumber, Modal, Select, Tag, TextArea, Toast } from '@douyinfe/semi-ui'
+import { getPortSecurityStatus } from '@/api/ovs'
 import {
   addVMInterface,
+  vpcSwitchModeDetail,
   updateVMInterface,
   type VMInterfaceInfo,
   type VpcSecurityGroup,
@@ -42,12 +45,15 @@ export default function NicEditDialog({
   onClose,
   onSaved,
 }: NicEditDialogProps) {
-  const { options } = useVmFormScope()
+  const { options, ctx } = useVmFormScope()
   const [nicModel, setNicModel] = useState('virtio')
   const [switchId, setSwitchId] = useState<number | null>(null)
   const [securityGroupId, setSecurityGroupId] = useState<number | null>(null)
   const [bandwidthIn, setBandwidthIn] = useState(0)
   const [bandwidthOut, setBandwidthOut] = useState(0)
+  const [allowedIPv4, setAllowedIPv4] = useState('')
+  const [allowedIPv6, setAllowedIPv6] = useState('')
+  const [portSecurityEnabled, setPortSecurityEnabled] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const availableSwitches = useMemo(
     () => (switches.length > 0 ? switches : options.vpcSwitches),
@@ -61,18 +67,28 @@ export default function NicEditDialog({
   useEffect(() => {
     if (!visible) return
     void options.loadVPCOptions()
+    // 端口安全状态接口仅管理员可访问，普通用户不查询也不展示地址登记表单
+    if (ctx.isAdmin) {
+      void getPortSecurityStatus()
+        .then((res) => setPortSecurityEnabled(!!res.data?.enabled))
+        .catch(() => setPortSecurityEnabled(false))
+    }
     if (editing) {
       setNicModel(editing.binding?.nic_model || 'virtio')
       setSwitchId(editing.binding?.switch_id || editing.switch?.id || null)
       setSecurityGroupId(editing.binding?.security_group_id || editing.security_group?.id || null)
       setBandwidthIn(editing.binding?.bandwidth_inbound_avg || 0)
       setBandwidthOut(editing.binding?.bandwidth_outbound_avg || 0)
+      setAllowedIPv4(editing.binding?.allowed_ipv4_addresses || '')
+      setAllowedIPv6(editing.binding?.allowed_ipv6_addresses || '')
     } else {
       setNicModel('virtio')
       setSwitchId(availableSwitches[0]?.id ?? null)
       setSecurityGroupId(null)
       setBandwidthIn(0)
       setBandwidthOut(0)
+      setAllowedIPv4('')
+      setAllowedIPv6('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, editing])
@@ -87,13 +103,14 @@ export default function NicEditDialog({
     [availableSwitches, switchId],
   )
   const isBridge = selectedSwitch?.bridge_mode === 'bridge'
+  const isTrustedEmpty = isBridge && !selectedSwitch?.uplink_if
   const securityGroupOwner = ownerUsername || editing?.binding?.username || editing?.security_group?.username || ''
   const filteredSecurityGroups = useMemo(
     () => filterSecurityGroupsForSwitch(availableGroups, selectedSwitch, securityGroupOwner, vmName),
     [availableGroups, selectedSwitch, securityGroupOwner, vmName],
   )
 
-  // 切换交换机时：桥接直通清空安全组；安全组不属于新交换机用户时清空
+  // 切换交换机时：二层交换机清空安全组；安全组不属于新交换机用户时清空。
   const handleSwitchChange = (value: unknown) => {
     const id = Number(value)
     setSwitchId(id)
@@ -113,6 +130,15 @@ export default function NicEditDialog({
       Toast.warning('请选择 VPC 交换机')
       return
     }
+    if (
+      portSecurityEnabled &&
+      isBridge &&
+      selectedSwitch?.ipv6_security_enabled &&
+      !allowedIPv6.trim()
+    ) {
+      Toast.warning('此交换机已启用 IPv6 防护，请登记网卡的精确 IPv6 地址')
+      return
+    }
     setSubmitting(true)
     try {
       const payload = {
@@ -121,6 +147,8 @@ export default function NicEditDialog({
         security_group_id: securityGroupId || 0,
         bandwidth_inbound_avg: bandwidthIn || 0,
         bandwidth_outbound_avg: bandwidthOut || 0,
+        allowed_ipv4_addresses: isTrustedEmpty ? '' : allowedIPv4.trim(),
+        allowed_ipv6_addresses: isTrustedEmpty ? '' : allowedIPv6.trim(),
       }
       if (editing) {
         await updateVMInterface(vmName, editing.binding?.interface_order ?? 0, payload)
@@ -169,17 +197,15 @@ export default function NicEditDialog({
           {availableSwitches.map((item) => (
             <Select.Option key={item.id} value={item.id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <span>{item.username ? `${item.username} / ${item.name}` : item.name}</span>
+                <span>{ctx.isAdmin && item.username ? `${item.username} / ${item.name}` : item.name}</span>
                 <Tag size="small" color={item.bridge_mode === 'bridge' ? 'orange' : 'blue'}>
-                  {item.bridge_mode === 'bridge'
-                    ? `${item.bridge_name || '桥接'}${item.bridge_vlan_id > 0 ? ` / VLAN ${item.bridge_vlan_id}` : ''}`
-                    : item.cidr}
+                  {vpcSwitchModeDetail(item)}
                 </Tag>
               </div>
             </Select.Option>
           ))}
         </Select>
-        {isBridge && <div className="qvm-vf-tip">桥接直通由上级路由器分配 IP，不使用内部 DHCP 和安全组</div>}
+        {isBridge && <div className="qvm-vf-tip">此二层交换机不使用面板 DHCP 和安全组；空交换机可由软路由提供地址</div>}
       </FormField>
       {!isBridge && (
         <FormField label="安全组" tip="不选则使用该交换机用户默认安全组">
@@ -197,28 +223,58 @@ export default function NicEditDialog({
           />
         </FormField>
       )}
-      <Divider margin="12px">速率限制</Divider>
-      <div className="qvm-vf-grid-2">
-        <FormField label="下行速率 (Mbps)">
-          <InputNumber
-            style={{ width: '100%' }}
-            value={bandwidthIn}
-            min={0}
-            max={100000}
-            onChange={(v) => setBandwidthIn(Number(v || 0))}
-          />
-        </FormField>
-        <FormField label="上行速率 (Mbps)">
-          <InputNumber
-            style={{ width: '100%' }}
-            value={bandwidthOut}
-            min={0}
-            max={100000}
-            onChange={(v) => setBandwidthOut(Number(v || 0))}
-          />
-        </FormField>
-      </div>
-      <div className="qvm-vf-tip">0 表示不限制，设置后通过 libvirt domiftune 对该网口生效</div>
+      {portSecurityEnabled && !isTrustedEmpty && (
+        <>
+          <Divider margin="12px">端口安全地址</Divider>
+          <FormField
+            label="允许的 IPv4 地址"
+            tip={isBridge ? '物理直通填写后可启用精确 IPv4 校验' : '填写静态地址；DHCP 租约和公网绑定会自动加入策略'}
+          >
+            <TextArea
+              value={allowedIPv4}
+              onChange={setAllowedIPv4}
+              placeholder={'每行一个精确地址，例如：\n192.0.2.10'}
+              autosize={{ minRows: 2, maxRows: 4 }}
+            />
+          </FormField>
+          {isBridge && selectedSwitch?.ipv6_security_enabled && (
+            <FormField label="允许的 IPv6 地址" required tip="仅接受可信前缀内的精确地址，可用换行或逗号分隔">
+              <TextArea
+                value={allowedIPv6}
+                onChange={setAllowedIPv6}
+                placeholder={'每行一个精确地址，例如：\n2001:db8:100::10'}
+                autosize={{ minRows: 2, maxRows: 4 }}
+              />
+            </FormField>
+          )}
+        </>
+      )}
+      {ctx.isAdmin && (
+        <>
+          <Divider margin="12px">速率限制</Divider>
+          <div className="qvm-vf-grid-2">
+            <FormField label="下行速率 (Mbps)">
+              <InputNumber
+                style={{ width: '100%' }}
+                value={bandwidthIn}
+                min={0}
+                max={100000}
+                onChange={(v) => setBandwidthIn(Number(v) || 0)}
+              />
+            </FormField>
+            <FormField label="上行速率 (Mbps)">
+              <InputNumber
+                style={{ width: '100%' }}
+                value={bandwidthOut}
+                min={0}
+                max={100000}
+                onChange={(v) => setBandwidthOut(Number(v) || 0)}
+              />
+            </FormField>
+          </div>
+          <div className="qvm-vf-tip">0 表示不限制，设置后通过 libvirt domiftune 对该网口生效</div>
+        </>
+      )}
     </Modal>
   )
 }

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
+	vmmemory "kvm_console/service/vm/memory"
 	vmpkg "kvm_console/service/vm"
-	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 )
 
@@ -18,6 +18,7 @@ type HostDeviceParam = vmpkg.HostDeviceParam
 
 // CloneParams 克隆参数
 type CloneParams struct {
+	Owner                 string                         `json:"-"`
 	Name                  string                         `json:"name"`                             // 虚拟机名称
 	Remark                string                         `json:"remark,omitempty"`                 // 虚拟机备注
 	Template              string                         `json:"template"`                         // 模板名称
@@ -50,9 +51,11 @@ type CloneParams struct {
 	CPULimitPercent       int                            `json:"cpu_limit_percent,omitempty"`      // CPU 限制百分比，0 表示无限制
 	CPUAffinity           string                         `json:"cpu_affinity,omitempty"`           // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode   string                         `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略: normal/cold
-	MemoryDynamic         *memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`
+	MemoryDynamic         *vmmemory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`        // 内存动态调整
 	SwitchID              uint                           `json:"switch_id,omitempty"`
 	SecurityGroupID       uint                           `json:"security_group_id,omitempty"`
+	AllowedIPv4Addresses  string                         `json:"allowed_ipv4_addresses,omitempty"`
+	AllowedIPv6Addresses  string                         `json:"allowed_ipv6_addresses,omitempty"`
 	ExtraNics             []AddVMInterfaceRequest        `json:"extra_nics,omitempty"`
 	StoragePoolID         string                         `json:"storage_pool_id,omitempty"`
 	ExtraDisks            []ExtraDiskParam               `json:"extra_disks,omitempty"`
@@ -78,6 +81,7 @@ type CloneParams struct {
 
 // BatchCloneParams 批量克隆参数
 type BatchCloneParams struct {
+	Owner               string                     `json:"-"`
 	Prefix              string                     `json:"prefix"`                  // 名称前缀
 	StartNum            int                        `json:"start_num"`               // 起始编号
 	Count               int                        `json:"count"`                   // 数量
@@ -108,15 +112,17 @@ type BatchCloneParams struct {
 	SpiceEnabled        *bool                      `json:"spice_enabled,omitempty"`          // 是否启用 SPICE（nil=回退全局默认）
 	DiskBus             string                     `json:"disk_bus,omitempty"`               // 系统盘总线类型
 	CPUTopologyMode     string                     `json:"cpu_topology_mode,omitempty"`      // CPU 拓扑模式
-CPULimitPercent     int                        `json:"cpu_limit_percent,omitempty"`      // CPU 限制百分比，0 表示无限制
+	CPULimitPercent     int                        `json:"cpu_limit_percent,omitempty"`      // CPU 限制百分比，0 表示无限制
 	CPUAffinity         string                     `json:"cpu_affinity,omitempty"`           // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode string                     `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略
 	NicModel            string                     `json:"nic_model,omitempty"`              // 网卡模型
 	StoragePoolID       string                     `json:"storage_pool_id,omitempty"`       // 存储池
-	MemoryDynamic       *memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`    // 内存动态调整
+	MemoryDynamic       *vmmemory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`    // 内存动态调整
 	SystemDiskIOPS      *DiskIOPSTune              `json:"system_disk_iops,omitempty"`      // 系统盘 IOPS 限制
 	SwitchID            uint                       `json:"switch_id,omitempty"`             // VPC 交换机 ID
 	SecurityGroupID     uint                       `json:"security_group_id,omitempty"`      // 安全组 ID
+	AllowedIPv4Addresses string                    `json:"allowed_ipv4_addresses,omitempty"`
+	AllowedIPv6Addresses string                    `json:"allowed_ipv6_addresses,omitempty"`
 	ExtraNics           []AddVMInterfaceRequest    `json:"extra_nics,omitempty"`
 	ExtraDisks          []ExtraDiskParam           `json:"extra_disks,omitempty"`
 	HostDevices         []HostDeviceParam          `json:"host_devices,omitempty"`        // 仅 count=1 时允许

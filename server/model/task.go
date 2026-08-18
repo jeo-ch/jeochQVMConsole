@@ -47,6 +47,8 @@ const (
 	TaskTypeEnableHostFirewall              = "enable_host_firewall"               // 启用宿主机防火墙
 	TaskTypeDisableHostFirewall             = "disable_host_firewall"              // 关闭宿主机防火墙
 	TaskTypeOVSRepair                       = "ovs_repair"                         // 修复 OVS 网络基础配置
+	TaskTypePortSecurity                    = "port_security"                      // OVS 端口安全启停、协调与隔离
+	TaskTypePortMirror                      = "port_mirror"                        // tc/OVS 端口镜像启停
 	TaskTypePublicIPApply                   = "public_ip_apply"                    // 应用公网 IP 绑定/解绑/迁移
 	TaskTypeEnterMaintenanceMode            = "enter_maintenance_mode"             // 启用维护模式
 	TaskTypeExitMaintenanceMode             = "exit_maintenance_mode"              // 关闭维护模式
@@ -65,6 +67,8 @@ const (
 	TaskTypeMakeVMIndependent               = "make_vm_independent"                // 链式克隆虚拟机转为独立虚拟机
 	TaskTypePasswordBreachScan              = "password_breach_scan"               // 泄露密码扫描
 	TaskTypePasswordBreachNotify            = "password_breach_notify"             // 泄露密码通知
+	TaskTypeStorageTrim                     = "storage_trim"                       // 用户存储空间回收
+	TaskTypeVPCSwitchReconfigure            = "vpc_switch_reconfigure"             // VPC 交换机拓扑重配置
 )
 
 // Task 异步任务模型。
