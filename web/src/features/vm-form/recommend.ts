@@ -24,12 +24,6 @@ export const shouldUseBIOSForI440FXWindows = (
   form.os_type === 'windows' &&
   form.machine_type === 'i440fx'
 
-/** 推荐 Windows 引导类型 */
-export const getRecommendedWindowsBootType = (
-  form: VmFormModel,
-  isEdit: boolean,
-): string => (shouldUseBIOSForI440FXWindows(form, isEdit) ? 'bios' : 'uefi')
-
 // ==================== 动态内存推荐 ====================
 
 /** 推荐最大内存：基础值上浮 30%（至少等于基础值） */

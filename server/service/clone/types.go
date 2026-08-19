@@ -10,8 +10,6 @@ import (
 	"kvm_console/service/vm_xml"
 )
 
-const LinuxCloneIPWaitSeconds = 180
-
 var fnOSDeviceIDRegexp = regexp.MustCompile(`^[0-9a-fA-F]{32}([0-9a-fA-F]{8})?$`)
 
 type HostDeviceParam = vmpkg.HostDeviceParam
@@ -170,15 +168,6 @@ type CloneResult struct {
 // padNum 零填充数字
 func padNum(n int) string {
 	return fmt.Sprintf("%02d", n)
-}
-
-// CloneTaskHandler 克隆任务处理器（用于任务队列）
-func CloneTaskHandler(task interface{}, progressFn func(int, string)) (string, error) {
-	return "", nil
-}
-
-// RegisterCloneHandlers 注册克隆相关任务处理器
-func RegisterCloneHandlers() {
 }
 
 // ParseCloneParams 从 JSON 解析克隆参数

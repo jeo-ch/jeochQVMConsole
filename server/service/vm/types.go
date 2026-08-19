@@ -29,6 +29,17 @@ type VmInfo struct {
 	MaxVCPU                  int                  `json:"max_vcpu"`           // CPU 热添加上限（0 表示未启用）
 	Memory                   int                  `json:"memory"`             // 内存（MB）
 	MaxMemory                int                  `json:"max_memory"`         // 最大内存（MB）
+	MemoryInitial            int                  `json:"memory_initial"`     // 动态内存启动/保障内存（MB）
+	MemoryMin                int                  `json:"memory_min"`         // 动态内存最小内存（MB）
+	MemoryMaxDynamic         int                  `json:"memory_max_dynamic"` // 动态内存最大内存（MB）
+	MemoryBackend            string               `json:"memory_backend"`     // 动态内存后端: balloon/virtio_mem
+	MemoryVirtioMemCurrent   int                  `json:"memory_virtio_mem_current"`
+	MemoryDynamicEnabled     bool                 `json:"memory_dynamic_enabled"`
+	MemoryAutoBalloon        bool                 `json:"memory_auto_balloon"`
+	MemoryPendingApply       bool                 `json:"memory_pending_apply"`
+	MemoryCompatMode         string               `json:"memory_compat_mode"`
+	MemoryBalloonSupported   bool                 `json:"memory_balloon_supported"`
+	MemoryBalloonStatus      string               `json:"memory_balloon_status"`
 	IP                       string               `json:"ip"`                 // IP 地址（主 IP）
 	IPStatus                 string               `json:"ip_status"`          // IP 状态: ""=正常, "vlan_bridge"=VLAN桥接无法获取
 	IPs                      []string             `json:"ips"`                // 所有 IP 地址（IPv4 + IPv6，去重）
@@ -98,6 +109,8 @@ type VmDetail struct {
 	KVMHidden              bool                          `json:"kvm_hidden"`            // 隐藏 KVM 标志
 	VendorID               string                        `json:"vendor_id"`             // Hyper-V vendor_id 伪装值
 	NestedVirt             bool                          `json:"nested_virt"`           // 嵌套虚拟化开关
+	MemoryObservationUntil int64                         `json:"memory_observation_until"`
+	MemoryManualPauseUntil int64                         `json:"memory_manual_pause_until"`
 }
 
 // VmStats 虚拟机资源使用统计

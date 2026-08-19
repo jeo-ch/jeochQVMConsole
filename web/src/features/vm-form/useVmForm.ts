@@ -493,14 +493,6 @@ export function useVmForm({ isEdit, registration, hostArch }: UseVmFormParams) {
 
   // ==================== 动态内存联动 ====================
 
-  /** 应用动态内存推荐值（按当前后端类型） */
-  const applyRecommendedMemoryDynamicValues = useCallback((spec?: number) => {
-    setForm((prev) => {
-      const base = spec ?? (isEdit ? prev.memory || prev.ram || 1 : prev.ram || 1)
-      return { ...prev, ...recommendedMemoryDynamicValues(prev.memory_backend, base) }
-    })
-  }, [isEdit])
-
   const handleDynamicMemoryEnabledChange = useCallback(
     (enabled: boolean) => {
       setForm((prev) => {
@@ -543,22 +535,21 @@ export function useVmForm({ isEdit, registration, hostArch }: UseVmFormParams) {
     })
   }, [isEdit])
 
-  /** 打开动态内存配置弹窗前兜底默认值 */
+  /** 打开动态内存配置弹窗前兜底默认值（复用 recommend.ts 统一口径） */
   const ensureMemoryDynamicDefaults = useCallback(() => {
     setForm((prev) => {
       const next = { ...prev }
       const base = isEdit ? prev.memory || prev.ram || 1 : prev.ram || 1
-      if (!next.memory_initial || next.memory_initial < 1) next.memory_initial = base
+      const recommended = recommendedMemoryDynamicValues(prev.memory_backend, base)
+      if (!next.memory_initial || next.memory_initial < 1) next.memory_initial = recommended.memory_initial
       if (next.memory_backend === 'virtio_mem') {
-        const initial = Math.max(1, Math.floor(base / 2))
-        next.memory_initial = initial
-        next.memory_min = initial
+        next.memory_initial = recommended.memory_initial
+        next.memory_min = recommended.memory_min
       } else if (!next.memory_min || next.memory_min < 1) {
-        next.memory_min = Math.max(1, Math.floor(next.memory_initial / 2))
+        next.memory_min = recommended.memory_min
       }
-      const recommendedMax = Math.max(base, Math.ceil(base * 1.3))
       if (!next.memory_max_dynamic || next.memory_max_dynamic < next.memory_initial) {
-        next.memory_max_dynamic = recommendedMax
+        next.memory_max_dynamic = recommended.memory_max_dynamic
       }
       return next
     })
@@ -568,23 +559,6 @@ export function useVmForm({ isEdit, registration, hostArch }: UseVmFormParams) {
 
   /** 应用虚拟机详情到表单（编辑模式打开/刷新时调用）
    * 返回回填后的完整表单（同步计算，调用方可直接用于快照捕获） */
-  const applyEditVmDetail = useCallback(
-    (
-      detail: Partial<VmDetailInfo>,
-      base?: Partial<VmFormModel>,
-      row: Partial<VmListItem> & { os_type?: string } = {},
-    ): VmFormModel => {
-      const next = buildEditFormState(
-        { ...form, ...(base || {}) } as VmFormModel,
-        detail,
-        row,
-      )
-      setForm(next)
-      return next
-    },
-    [form],
-  )
-
   /** 直接替换整个表单（快照捕获 / 重置场景） */
   const replaceForm = useCallback((next: VmFormModel) => {
     setForm(next)
@@ -621,13 +595,10 @@ export function useVmForm({ isEdit, registration, hostArch }: UseVmFormParams) {
     onVirtTypeChange,
     onArchChange,
     // 动态内存
-    applyRecommendedMemoryDynamicValues,
     handleDynamicMemoryEnabledChange,
     handleMemoryBackendChange,
     handleBaseMemoryChange,
     ensureMemoryDynamicDefaults,
-    // 编辑
-    applyEditVmDetail,
   }
 }
 

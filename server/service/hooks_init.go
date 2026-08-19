@@ -1,6 +1,7 @@
 package service
 
 import (
+	"kvm_console/model"
 	"kvm_console/service/vm/memory"
 )
 
@@ -38,5 +39,42 @@ func init() {
 	}
 	memory.HookMemoryInjectMemballoonConfig = func(xmlStr string, enableFPR bool) string {
 		return InjectMemballoonConfig(xmlStr, enableFPR)
+	}
+
+	// 动态内存调度器事件（scheduler 中心 → memory 子包反向依赖）
+	// memory 子包自有的 SchedulerDefinition / SchedulerEventStartInput 与 service 根包结构一致，
+	// 需逐字段转换后转发，避免循环 import。
+	memory.HookMemoryRegisterScheduler = func(def memory.SchedulerDefinition) {
+		RegisterScheduler(SchedulerDefinition{
+			Key:         def.Key,
+			Name:        def.Name,
+			Group:       def.Group,
+			Description: def.Description,
+			Enabled:     def.Enabled,
+		})
+	}
+	memory.HookMemoryStartSchedulerEvent = func(input memory.SchedulerEventStartInput) (interface{}, error) {
+		return StartSchedulerEvent(SchedulerEventStartInput{
+			SchedulerKey:   input.SchedulerKey,
+			SchedulerName:  input.SchedulerName,
+			SchedulerGroup: input.SchedulerGroup,
+			VMName:         input.VMName,
+			VMBackend:      input.VMBackend,
+			TriggerReason:  input.TriggerReason,
+		})
+	}
+	memory.HookMemoryFinishSchedulerEventOk = func(event interface{}, msg string) error {
+		ev, ok := event.(*model.SchedulerEvent)
+		if !ok || ev == nil {
+			return nil
+		}
+		return FinishSchedulerEventSuccess(ev, msg)
+	}
+	memory.HookMemoryFinishSchedulerEventFail = func(event interface{}, msg string) error {
+		ev, ok := event.(*model.SchedulerEvent)
+		if !ok || ev == nil {
+			return nil
+		}
+		return FinishSchedulerEventFailed(ev, msg)
 	}
 }

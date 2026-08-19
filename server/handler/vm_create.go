@@ -148,6 +148,7 @@ func CreateVm(c *gin.Context) {
 		CPUAffinity:          req.CPUAffinity,
 		VirtType:             req.VirtType,
 		Arch:                 req.Arch,
+		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
 		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
@@ -183,6 +184,9 @@ func CreateVm(c *gin.Context) {
 	usernameStr := username.(string)
 	role, _ := c.Get("role")
 	params.IsAdmin = role == "admin"
+	if role != "admin" {
+		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
+	}
 
 	// 如果是普通用户，检查配额
 	if role == "user" {

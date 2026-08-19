@@ -12,6 +12,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/service/arch"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 
@@ -46,6 +47,7 @@ type LinkedCloneParams struct {
 	CPULimitPercent      int                     `json:"cpu_limit_percent,omitempty"`
 	CPUAffinity          string                  `json:"cpu_affinity,omitempty"` // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode  string                  `json:"first_boot_reboot_mode,omitempty"`
+	MemoryDynamic        *memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`
 	SwitchID             uint                    `json:"switch_id,omitempty"`
 	SecurityGroupID      uint                    `json:"security_group_id,omitempty"`
 	AllowedIPv4Addresses string                  `json:"allowed_ipv4_addresses,omitempty"`
@@ -211,7 +213,12 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 		return nil, err
 	}
 
-	ramMB := params.RAM * 1024
+	// 动态内存配置：计算克隆启动内存、生成 metadata（虚拟化层，不落数据库）
+	memoryMeta, ramMB, _, err := memory.BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
+	if err != nil {
+		cleanupLinkedCloneArtifacts("", cloneDisk)
+		return nil, err
+	}
 
 	progressFn(55, "生成虚拟机定义...")
 	vcpuArg := fmt.Sprintf("--vcpus %d", params.VCPU)
@@ -270,6 +277,14 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	additionalPCIEDevices := len(params.ExtraNics) + len(params.ExtraDisks) + len(params.HostDevices)
 	pciePortCount := vm_xml.ResolveCreatePCIERootPortCount(vmXML, params.PCIERootPorts, additionalPCIEDevices)
 	vmXML = D.InjectPCIERootPorts(vmXML, pciePortCount)
+
+	if memoryMeta != nil {
+		vmXML, err = memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
+		if err != nil {
+			cleanupLinkedCloneArtifacts("", cloneDisk)
+			return nil, err
+		}
+	}
 
 	vmXML, err = D.ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, templateType)
 	if err != nil {
@@ -370,6 +385,13 @@ func LinkedCloneVM(ctx context.Context, params *LinkedCloneParams, progressFn fu
 	if _, err := libvirt_rpc.DefineDomainXMLRPC(vmXML); err != nil {
 		cleanupLinkedCloneArtifacts("", cloneDisk)
 		return nil, fmt.Errorf("定义虚拟机失败: %w", err)
+	}
+
+	if memoryMeta != nil {
+		if err := memory.WriteVMMemoryMetadata(params.Name, memoryMeta); err != nil {
+			cleanupLinkedCloneArtifacts(params.Name, cloneDisk)
+			return nil, err
+		}
 	}
 
 	if err := D.WriteVMTemplateSource(params.Name, params.Template, params.CloneMode); err != nil {

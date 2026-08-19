@@ -169,6 +169,3 @@ func RandomStringFromCharset(charset string, length int) string {
 
 // CloneUsernameRegexp re-exports clone.CloneUsernameRegexp
 var CloneUsernameRegexp = clonepkg.CloneUsernameRegexp
-
-// LinuxCloneIPWaitSeconds re-exports clone.LinuxCloneIPWaitSeconds
-const LinuxCloneIPWaitSeconds = clonepkg.LinuxCloneIPWaitSeconds

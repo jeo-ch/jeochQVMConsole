@@ -629,6 +629,7 @@ func SelfCreateVm(c *gin.Context) {
 		SpiceEnabled:         req.SpiceEnabled,
 		CPUTopologyMode:      req.CPUTopologyMode,
 		VirtType:             "kvm",
+		MemoryDynamic:        sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM),
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
 		AllowedIPv4Addresses: req.AllowedIPv4Addresses,

@@ -11,6 +11,7 @@ import (
 
 	"kvm_console/config"
 	"kvm_console/service/arch"
+	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
@@ -53,6 +54,7 @@ type CreateVMParams struct {
 	VirtType             string                         `json:"virt_type,omitempty"`    // 虚拟化方案: kvm/qemu，默认 kvm
 	Arch                 string                         `json:"arch,omitempty"`         // 目标架构: x86_64/aarch64/riscv64
 	ExtraDisks           []ExtraDiskParam               `json:"extra_disks,omitempty"`
+	MemoryDynamic        *memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`
 	SystemDiskIOPS       *DiskIOPSTune                  `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
 	SwitchID             uint                           `json:"switch_id,omitempty"`
 	SecurityGroupID      uint                           `json:"security_group_id,omitempty"`
@@ -333,6 +335,16 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	ramMB := params.RAM * 1024
 
+	// 动态内存配置：计算启动内存、生成 metadata（虚拟化层，不落数据库）
+	var memoryMeta *memory.VMMemoryMetadata
+	if params.MemoryDynamic != nil {
+		memoryMeta, ramMB, _, err = memory.BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
+
 	// 启动前检查宿主机可用内存，预留系统开销
 	if err := CheckHostMemory(ramMB); err != nil {
 		_ = os.Remove(diskPath)
@@ -467,6 +479,15 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	additionalPCIEDevices := len(params.ExtraNics) + len(params.ExtraDisks) + len(params.HostDevices)
 	pciePortCount := vm_xml.ResolveCreatePCIERootPortCount(vmXML, params.PCIERootPorts, additionalPCIEDevices)
 	vmXML = InjectPCIERootPorts(vmXML, pciePortCount)
+
+	// 动态内存 metadata 注入 domain XML
+	if memoryMeta != nil {
+		vmXML, err = memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
+		if err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
+	}
 
 	vmXML, err = D.ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, params.OSType)
 	if err != nil {
@@ -667,6 +688,12 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if defineResult.Error != nil {
 		_ = os.Remove(diskPath)
 		return "", fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
+	}
+	if memoryMeta != nil {
+		if err := memory.WriteVMMemoryMetadata(params.Name, memoryMeta); err != nil {
+			_ = os.Remove(diskPath)
+			return "", err
+		}
 	}
 	if err := SetVMRemark(params.Name, params.Remark); err != nil {
 		_ = os.Remove(diskPath)

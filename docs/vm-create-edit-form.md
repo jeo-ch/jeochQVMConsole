@@ -55,7 +55,7 @@ web/src/features/vm-form/
 │   ├── ImportStorageSection.tsx # 【创建】导入磁盘（来源/处理/IOPS/导入后操作/额外导入磁盘）
 │   ├── ExtraDiskSection.tsx  # 【创建】额外数据盘（ISO/模板共用）
 │   ├── ConfirmSection.tsx    # 【创建】最后一步：配置确认摘要
-│   ├── CpuMemorySection.tsx  # 【共用】CPU/内存/热添加/CPU 限制(管理员)
+│   ├── CpuMemorySection.tsx  # 【共用】CPU/内存/热添加/CPU 限制(管理员)/动态内存
 │   ├── VirtEngineSection.tsx # 【共用】虚拟化方案/架构/机型/引导类型
 │   ├── NicSection.tsx        # 【共用】网卡类型（编辑运行中禁用）+ 网口列表（创建）
 │   ├── BootOrderSection.tsx  # 【共用】引导顺序（创建类型排序 / 编辑设备列表）
@@ -70,6 +70,8 @@ web/src/features/vm-form/
     ├── SmbiosDialog.tsx      # 【共用】SMBIOS 类型 1
     ├── DiskIopsDialog.tsx    # 【共用】磁盘 IOPS（受控通用组件）
     ├── PassthroughPickerDialog.tsx # 【共用·管理员】直通设备选择
+    ├── MemoryDynamicDialog.tsx # 【共用】动态内存配置（balloon / virtio_mem 参数 + 推荐值）
+    ├── VirtioMemDetailDialog.tsx # 【共用】Windows 弹性内存详情（virtio_mem 运行状态）
     ├── VmXmlDialog.tsx       # 【编辑】持久化 XML 查看/保存
     ├── AttachDiskDialog.tsx  # 【编辑】挂载已有磁盘（管理员可绝对路径导入）
     ├── ResizeDiskDialog.tsx  # 【编辑】磁盘扩容（仅扩大）
@@ -107,7 +109,7 @@ web/src/features/vm-form/
 | 创建方式 | ISO 镜像安装 / 模板快速克隆 / 导入已有磁盘 / 导入虚拟机 四卡 | - |
 | 虚拟机包 | 仅导入虚拟机模式：使用大卡片选择“跟随 OVF 配置 / 自定义”；创建向导不读取包内容 | 必须选择源文件；跟随模式直接提交，自定义模式继续完整向导；包校验由异步任务执行 |
 | 基础信息 | 名称、批量数量（模板）、备注、系统类型/版本（ISO）、导入初始化（导入）、模板与凭据（模板） | 名称格式、模板/磁盘/凭据按模式分支 |
-| 硬件规格 | CPU/内存/热添加/CPU 限制 + 虚拟化方案/架构/机型/引导 | vcpu、ram > 0 |
+| 硬件规格 | CPU/内存/热添加/CPU 限制 + 动态内存（气球调度 / Windows 弹性内存）+ 虚拟化方案/架构/机型/引导 | vcpu、ram > 0 |
 | 存储介质 | 存储位置 + ISO/系统盘（ISO）、导入磁盘（导入）、额外数据盘（模板） | ISO 磁盘大小、导入磁盘文件/路径 |
 | 网络设置 | 默认网卡型号 + 网口列表（交换机/安全组/型号） | - |
 | 系统配置 | 引导顺序、Watchdog、开机自启 | - |
@@ -138,7 +140,7 @@ web/src/features/vm-form/
 
 | 选项卡 | 内容 |
 |--------|------|
-| 基础配置 | 名称（只读）、状态、CPU/内存/热添加/CPU 限制 |
+| 基础配置 | 名称（只读）、状态、CPU/内存/热添加/CPU 限制、动态内存（待迁移标签提示） |
 | 磁盘与驱动器 | 现有磁盘表（扩容/删除/驱动/IOPS）、新建磁盘、挂载已有磁盘、光驱、软盘 |
 | 启动与安全 | 网卡类型（运行中禁用）、机型（只读）、引导方式（关机可改）、引导顺序（Cockpit 风格设备列表）、开机自启 |
 | 网口管理 | 主网口 VPC 绑定切换（交换机/安全组，轻量云禁用）+ 多网口列表（添加/编辑/删除，运行态实时 IP，热插拔提示）。管理员可管理所有虚拟机网口；弹性云用户可自助为本人虚拟机添加/编辑/删除附加网口（仅限本人的非系统交换机，主网口统一在 VPC 网络绑定中管理，网口级速率限制仅管理员可见），轻量云用户由管理员分配网络、不可自助操作。运行态 IP 优先按 MAC 与 `network/status` 匹配，删除前序网卡后即使绑定序号保留空洞，也能显示剩余网卡 IP。当模板未预置网卡时，保存主网口 VPC 绑定会先创建实体主网卡，再保存绑定；网卡统一使用 virtio。 |

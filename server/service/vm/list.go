@@ -12,6 +12,7 @@ import (
 	"kvm_console/logger"
 	"kvm_console/service/ip_resolver"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/service/vm/memory"
 	"kvm_console/utils"
 )
 
@@ -132,6 +133,7 @@ func ListVMs(options ...VMListOptions) ([]VmInfo, error) {
 			if configVCPU := D.ParseVCPUCountFromDomainXML(xmlStr); configVCPU > 0 {
 				vm.VCPU = configVCPU
 			}
+			applyMemoryDynamicInfoToVMInfo(&vm, memory.GetVMMemoryDynamicInfo(name, xmlStr, vm.Status))
 			vm.CPULimitPercent = D.ParseVMCPULimitPercentFromDomainXML(xmlStr, vm.VCPU)
 			vm.CPUAffinity = D.ParseCPUAffinityFromDomainXML(xmlStr)
 		}
@@ -229,5 +231,23 @@ func parseInfoInt(output, key string) int {
 		}
 	}
 	return 0
+}
+
+// applyMemoryDynamicInfoToVMInfo 将 libvirt metadata 中的动态内存信息应用到 VMInfo 列表项
+func applyMemoryDynamicInfoToVMInfo(vm *VmInfo, info *memory.VMMemoryDynamicInfo) {
+	if vm == nil || info == nil {
+		return
+	}
+	vm.MemoryInitial = info.MemoryInitial
+	vm.MemoryMin = info.MemoryMin
+	vm.MemoryMaxDynamic = info.MemoryMax
+	vm.MemoryBackend = info.MemoryBackend
+	vm.MemoryVirtioMemCurrent = info.VirtioMemCurrent
+	vm.MemoryDynamicEnabled = info.DynamicEnabled
+	vm.MemoryAutoBalloon = info.AutoBalloon
+	vm.MemoryPendingApply = info.PendingApply
+	vm.MemoryCompatMode = info.CompatMode
+	vm.MemoryBalloonSupported = info.BalloonSupported
+	vm.MemoryBalloonStatus = info.BalloonStatus
 }
 

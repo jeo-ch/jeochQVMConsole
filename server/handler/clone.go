@@ -313,6 +313,9 @@ func CloneVm(c *gin.Context) {
 	}
 
 	params.IsAdmin = isAdmin
+	if !isAdmin {
+		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
+	}
 	if len(req.HostDevices) > 0 && !isAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可配置硬件直通设备"})
 		return
@@ -537,6 +540,10 @@ func BatchCloneVm(c *gin.Context) {
 		NestedVirt:          req.NestedVirt,
 		KVMHidden:           req.KVMHidden,
 		VendorID:            req.VendorID,
+	}
+
+	if !isAdmin {
+		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
 	}
 
 	username, _ := c.Get("username")

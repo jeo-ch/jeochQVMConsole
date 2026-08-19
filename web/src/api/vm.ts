@@ -484,6 +484,8 @@ export interface VmDetailInfo {
   memory_balloon_supported?: boolean
   memory_balloon_status?: string // ok / no_stats / not_running / missing_balloon / pending_apply
   memory_virtio_mem_current?: number // MB
+  memory_observation_until?: number // 观察期截止时间戳（自动调度暂停观察时）
+  memory_manual_pause_until?: number // 手动暂停自动调度截止时间戳
   boot_order?: string[]
   boot_devices?: VmBootDevice[]
 }

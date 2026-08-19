@@ -3,8 +3,8 @@
  * CPU 核心、内存、CPU 热添加、CPU 限制（管理员）、动态内存。
  */
 import { useState } from 'react'
-import { Button, InputNumber, Radio, Tag } from '@douyinfe/semi-ui'
-import { IconServer } from '@douyinfe/semi-icons'
+import { InputNumber, Radio, Tag, Tooltip } from '@douyinfe/semi-ui'
+import { IconServer, IconSetting, IconSync } from '@douyinfe/semi-icons'
 import SectionCard from './SectionCard'
 import FormField from './FormField'
 import TextSwitch from './TextSwitch'
@@ -120,16 +120,16 @@ export default function CpuMemorySection() {
                 <Tag color="orange" size="small">弹性内存</Tag>
               )}
               {f.memory_backend === 'virtio_mem' && (
-                <Button size="small" theme="borderless" type="primary" onClick={() => setVirtioMemDetailVisible(true)}>
-                  详情
-                </Button>
+                <Tooltip content="弹性内存详情" position="top">
+                  <span className="qvm-act-ic" onClick={() => setVirtioMemDetailVisible(true)}><IconSync /></span>
+                </Tooltip>
               )}
             </>
           )}
           {f.memory_dynamic_enabled && (
-            <Button size="small" theme="borderless" type="primary" onClick={() => setMemoryDialogVisible(true)}>
-              详细配置
-            </Button>
+            <Tooltip content="详细配置" position="top">
+              <span className="qvm-act-ic" onClick={() => setMemoryDialogVisible(true)}><IconSetting /></span>
+            </Tooltip>
           )}
         </div>
       </FormField>
