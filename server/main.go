@@ -117,8 +117,12 @@ func main() {
 	// 注册任务处理器
 	registerTaskHandlers()
 
-	// 启动任务队列（3 个 Worker）
-	taskqueue.Start(3)
+	// 启动任务队列（Worker 数可配置，默认 3）
+	workerCount := config.GlobalConfig.TaskQueueWorkers
+	if workerCount <= 0 {
+		workerCount = 3
+	}
+	taskqueue.Start(workerCount)
 
 	// 启动资源采集器（后台定时采集VM资源数据）
 	service.StartStatsCollector()

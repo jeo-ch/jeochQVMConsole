@@ -10,10 +10,10 @@ import {
   InputNumber,
   Modal,
   Select,
-  Switch,
   TextArea,
   Toast,
 } from '@douyinfe/semi-ui'
+import TextSwitch from '@/features/vm-form/sections/TextSwitch'
 import { updateTemplatePublish, type TemplateItem } from '@/api/template'
 import {
   LINUX_TEMPLATE_CATEGORY_OPTIONS,
@@ -189,7 +189,7 @@ export default function PublishSettingsDialog({ node, onClose, onSaved }: Publis
           <div className="qvm-form-tip">用户可见时普通用户可从此模板克隆</div>
         </div>
         <div className="tpl-switch-control">
-          <Switch
+          <TextSwitch
             checked={cloneVisible}
             onChange={(v) => setCloneVisible(v)}
             disabled={disabled}
@@ -204,7 +204,7 @@ export default function PublishSettingsDialog({ node, onClose, onSaved }: Publis
           <div className="qvm-form-tip">禁用后管理员新建虚拟机下拉框也不会显示该模板</div>
         </div>
         <div className="tpl-switch-control">
-          <Switch checked={disabled} onChange={(v) => setDisabled(v)} checkedText="禁" uncheckedText="用" />
+          <TextSwitch checked={disabled} onChange={(v) => setDisabled(v)} checkedText="禁" uncheckedText="用" />
         </div>
       </div>
 

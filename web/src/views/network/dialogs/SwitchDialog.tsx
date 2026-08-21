@@ -3,7 +3,8 @@
  * 交换机直接管理零或一个物理上行；普通用户通过“开启互联网”使用管理员预设出口。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Collapse, Input, InputNumber, Modal, Select, Switch, TextArea, Toast } from '@douyinfe/semi-ui'
+import { Collapse, Input, InputNumber, Modal, Select, TextArea, Toast } from '@douyinfe/semi-ui'
+import TextSwitch from '@/features/vm-form/sections/TextSwitch'
 import type { HostInterface } from '@/api/network'
 import {
   createVPCSwitch,
@@ -77,7 +78,7 @@ function SecuritySwitchRow({
           <div className="qvm-form-label">{label}</div>
           <div className="qvm-form-tip">{tip}</div>
         </div>
-        <Switch checked={checked} onChange={onChange} checkedText="允" uncheckedText="拒" />
+        <TextSwitch checked={checked} onChange={onChange} checkedText="允" uncheckedText="拒" />
       </div>
     </div>
   )
@@ -369,9 +370,9 @@ export default function SwitchDialog({
                           <div className="qvm-form-label">内置 DHCP</div>
                           <div className="qvm-form-tip">开启后同时启用网关、DNS、NAT 与专属策略路由。</div>
                         </div>
-                        <Switch
+                        <TextSwitch
                           checked={form.dhcp_enabled}
-                          onChange={(value) => {
+                          onChange={(value: boolean) => {
                             const selected = hostInterfaces.find((item) => item.name === form.uplink_if)
                             if (!value && selected?.can_use_direct === false) {
                               Toast.warning('该物理口当前不可用于新的直通交换机')
@@ -388,23 +389,23 @@ export default function SwitchDialog({
                 </>
               ) : (
                 <div className="qvm-form-item">
-                  <div className="net-switch-row">
-                    <div>
-                      <div className="qvm-form-label">开启互联网</div>
-                      <div className="qvm-form-tip">
-                        {quota?.internet_available
-                          ? '开启后使用管理员设置的物理出口，并启用网关、DNS、DHCP 与 NAT。'
-                          : '管理员尚未配置弹性云互联网出口，当前交换机保持纯二层。'}
+<div className="net-switch-row">
+                      <div>
+                        <div className="qvm-form-label">开启互联网</div>
+                        <div className="qvm-form-tip">
+                          {quota?.internet_available
+                            ? '开启后使用管理员设置的物理出口，并启用网关、DNS、DHCP 与 NAT。'
+                            : '管理员尚未配置弹性云互联网出口，当前交换机保持纯二层。'}
+                        </div>
                       </div>
+                      <TextSwitch
+                        checked={form.internet_enabled}
+                        disabled={!quota?.internet_available && !form.internet_enabled}
+                        onChange={(value: boolean) => patch({ internet_enabled: value })}
+                        checkedText="开"
+                        uncheckedText="关"
+                      />
                     </div>
-                    <Switch
-                      checked={form.internet_enabled}
-                      disabled={!quota?.internet_available && !form.internet_enabled}
-                      onChange={(value) => patch({ internet_enabled: value })}
-                      checkedText="开"
-                      uncheckedText="关"
-                    />
-                  </div>
                 </div>
               )}
             </Collapse.Panel>
@@ -485,7 +486,7 @@ export default function SwitchDialog({
                         <div className="qvm-form-label">迁移宿主机 IP</div>
                         <div className="qvm-form-tip">物理口承载宿主机地址或默认路由时，将地址、网关与 DNS 迁移到交换机网桥。</div>
                       </div>
-                      <Switch checked={form.migrate_host_ip} onChange={(value) => patch({ migrate_host_ip: value })} checkedText="开" uncheckedText="关" />
+                      <TextSwitch checked={form.migrate_host_ip} onChange={(value) => patch({ migrate_host_ip: value })} checkedText="开" uncheckedText="关" />
                     </div>
                   </div>
                 </>
@@ -512,7 +513,7 @@ export default function SwitchDialog({
                           <div className="qvm-form-label">IPv6 防护</div>
                           <div className="qvm-form-tip">仅允许可信前缀内登记到网卡的精确 IPv6 地址。</div>
                         </div>
-                        <Switch checked={form.ipv6_security_enabled} onChange={(value) => patch({ ipv6_security_enabled: value })} checkedText="开" uncheckedText="关" />
+                        <TextSwitch checked={form.ipv6_security_enabled} onChange={(value) => patch({ ipv6_security_enabled: value })} checkedText="开" uncheckedText="关" />
                       </div>
                     </div>
                     {form.ipv6_security_enabled && (

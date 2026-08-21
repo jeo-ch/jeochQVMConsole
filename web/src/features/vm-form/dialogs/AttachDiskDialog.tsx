@@ -3,7 +3,8 @@
  * 普通用户从我的存储选择磁盘文件；管理员可用绝对路径导入（异步任务）。
  */
 import { useEffect, useState } from 'react'
-import { Banner, Input, Modal, Radio, Select, Switch } from '@douyinfe/semi-ui'
+import { Banner, Input, Modal, Radio, Select } from '@douyinfe/semi-ui'
+import TextSwitch from '../sections/TextSwitch'
 import { useVmFormScope } from '../scopeContext'
 import type { VmEditDevices } from '../useVmEditDevices'
 import FormField from '../sections/FormField'
@@ -185,7 +186,7 @@ export default function AttachDiskDialog({ visible, devices, onClose }: AttachDi
 
       {canAutoMount && (
         <FormField label="自动挂载到系统" tip="只识别已有数据卷，不会重新格式化已有磁盘">
-          <Switch checked={autoMount} checkedText="开" uncheckedText="关" onChange={setAutoMount} />
+          <TextSwitch checked={autoMount} checkedText="开" uncheckedText="关" onChange={setAutoMount} />
         </FormField>
       )}
       {autoMount && guestType === 'linux' && (

@@ -183,6 +183,21 @@ export default function AdvancedTab({ form, patch }: SettingsTabProps) {
         />
       </SettingRow>
 
+      <SectionHead icon={<IconSetting />} title="任务队列" />
+
+      <SettingRow
+        label="工作协程数"
+        tip="任务队列并发处理任务的协程数量，默认 3。调整后需重启面板生效 | 环境变量: KVM_TASK_QUEUE_WORKERS"
+      >
+        <InputNumber
+          value={form.task_queue_workers || 3}
+          onNumberChange={(v) => patch({ task_queue_workers: v })}
+          min={1}
+          max={32}
+          style={{ width: '100%' }}
+        />
+      </SettingRow>
+
       <SectionHead icon={<IconShield />} title="救援系统" />
 
       <SettingRow

@@ -58,6 +58,7 @@ export interface SettingsForm {
   default_disk_iops_read: number
   default_disk_iops_write: number
   batch_clone_max_concurrency: number
+  task_queue_workers: number
   scheduler_event_retention_hours: number
   dynamic_memory_scheduler_enabled: boolean
   dynamic_memory_interval_seconds: number
@@ -142,6 +143,7 @@ export const DEFAULT_SETTINGS_FORM: SettingsForm = {
   default_disk_iops_read: 0,
   default_disk_iops_write: 0,
   batch_clone_max_concurrency: 10,
+  task_queue_workers: 3,
   scheduler_event_retention_hours: 168,
   dynamic_memory_scheduler_enabled: true,
   dynamic_memory_interval_seconds: 30,
@@ -243,6 +245,8 @@ export function validateSettingsForm(form: SettingsForm): string | null {
     return '看门狗探测间隔需在 10 - 3600 秒之间'
   if (form.vm_watchdog_max_misses < 1 || form.vm_watchdog_max_misses > 20)
     return '看门狗失联次数需在 1 - 20 之间'
+  if (form.task_queue_workers < 1 || form.task_queue_workers > 32)
+    return '任务队列工作协程数需在 1 - 32 之间'
   return null
 }
 

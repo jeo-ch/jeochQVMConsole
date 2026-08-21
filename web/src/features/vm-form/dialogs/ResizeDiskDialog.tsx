@@ -2,7 +2,8 @@
  * 磁盘扩容弹窗（编辑模式，仅扩大）
  */
 import { useEffect, useState } from 'react'
-import { Banner, InputNumber, Modal, Switch, Toast } from '@douyinfe/semi-ui'
+import { Banner, InputNumber, Modal, Toast } from '@douyinfe/semi-ui'
+import TextSwitch from '../sections/TextSwitch'
 import type { VmDiskItem } from '@/api/vm'
 import type { VmEditDevices } from '../useVmEditDevices'
 import FormField from '../sections/FormField'
@@ -89,7 +90,7 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
       </FormField>
       {canAutoGrow && (
         <FormField label="自动扩容系统分区" tip="宿主机磁盘扩容成功后，通过 QEMU Guest Agent 扩展根分区及 ext4、XFS 或 Btrfs 文件系统">
-          <Switch checked={autoGrow} checkedText="开" uncheckedText="关" onChange={setAutoGrow} />
+          <TextSwitch checked={autoGrow} checkedText="开" uncheckedText="关" onChange={setAutoGrow} />
         </FormField>
       )}
       {autoGrow && (
