@@ -38,11 +38,12 @@ web/src/views/settings/
 │   ├── PassthroughSection.tsx    # 硬件直通配置区
 │   ├── AdvancedTab.tsx           # 调度与高级
 │   ├── SecurityTab.tsx           # 安全与维护
-│   ├── LogTab.tsx                # 日志管理
+│   ├── LogTab.tsx                # 日志管理（含「请求日志详情」开关、文件列表查看/删除/导出）
 │   ├── DiagnosticsTab.tsx        # 诊断导出
 │   └── StorageMaintainTab.tsx    # 存储管理
 └── dialogs/
-    └── LogExportDialog.tsx       # 日志导出选择对话框
+    ├── LogExportDialog.tsx       # 日志导出选择对话框
+    └── LogViewerDialog.tsx       # 日志文件在线查看对话框（支持分页向前加载，.log.gz 不支持在线预览）
 ```
 
 相关公共代码：
@@ -75,6 +76,25 @@ web/src/views/settings/
 
 > 变更记录：端口转发 HTTP 探测功能已随后端移除（仅剩 config 白名单残留键），设置页不再提供相关配置项。
 
+## LogTab：请求日志详情与在线查看
+
+日志管理 Tab 新增「请求日志详情」分区：
+
+- **记录请求日志**（`request_detail_log_enabled`，默认开启，运行时生效无需重启）：
+  - 开启后，`log/request.log` 在原有基础请求日志（方法、路径、状态码、耗时、来源 IP、用户）基础上，**追加记录每个请求脱敏后的响应体 JSON**；
+  - 脱敏规则：字段名包含 `token` / `secret` / `password` / `passwd` / `api_key` / `apikey`，或精确命中 `totp` / `otp` / `recovery_code` / `verify_code` / `auth_code` / `captcha` / `authorization` / `credential(s)` 的字段，其字符串值被替换为 `[REDACTED]`；数字与布尔值不替换；
+  - 关闭后**完全停止请求日志记录**（不再产生任何新记录），已写入的历史记录保留在文件中直至归档清理；
+  - 环境变量：`KVM_REQUEST_DETAIL_LOG_ENABLED`、`KVM_REQUEST_LOG_MAX_BODY_BYTES`（单条响应体捕获上限，默认 8 KB，超出截断并打标记）。
+
+- **日志文件在线查看**：
+  - 文件列表每行「查看内容」按钮（眼睛图标）打开 `LogViewerDialog`；
+  - 默认展示文件**末尾** 200 行，「加载更早的记录」向前分页（每次 200 行，上限 1000 行），`eof=true` 时按钮置灰；
+  - 仅支持 `.log` 文本文件在线预览；压缩归档 `.log.gz` 不支持在线查看，需「一键导出」后本地解压；
+  - 关闭「记录请求日志」开关后，查看器提示当前为历史记录（无 `body=` 字段）；
+  - 后端接口：`GET /settings/log/read?file=xxx&lines=200&offset=0`，仅管理员可调用，拒绝路径穿越与非 `.log` 文件。
+
+详细设计见 `docs/request-log-viewer.md`、安全规范见 `docs/request-log-security.md`。
+
 ## 后端接口清单
 
 均为旧前端已存在的接口，本次未修改后端：
@@ -90,6 +110,7 @@ web/src/views/settings/
 | `/settings/cpu-affinity-presets` | PUT | 保存 CPU 亲和性预设 |
 | `/cpu-affinity-presets` | GET | 获取 CPU 亲和性预设 |
 | `/settings/log/status` | GET | 日志文件列表与占用 |
+| `/settings/log/read` | GET | 读取日志文件内容（在线查看，支持 `lines`/`offset` 分页，仅 `.log` 文本文件，管理员） |
 | `/settings/log/delete` | POST | 删除日志 |
 | `/settings/log/export` | POST | 导出日志（blob ZIP） |
 | `/settings/diagnostics/categories` | GET | 诊断类别 |
