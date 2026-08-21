@@ -252,6 +252,15 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
     response: 'data: total_size, total_size_human, files[{name,size,mod_time,is_today,category}], categories',
     notes: ['返回日志目录下所有日志文件列表及磁盘总占用大小'],
   },
+  'GET /settings/log/read': {
+    summary: '读取日志文件内容',
+    query: ['file', 'lines', 'offset'],
+    response: 'data: name, content（脱敏后的日志文本）, lines, prev_offset, eof',
+    notes: [
+      '在线预览日志文本，从文件尾部向前分页读取：file 为日志文件名（仅 .log，拒绝路径穿越），lines 为每次读取行数（默认 200，上限 1000），offset 传上一页返回的 prev_offset 可加载更早记录',
+      '压缩归档（.log.gz）不支持在线预览；敏感字段（token、密码、密钥等）在记录时已脱敏',
+    ],
+  },
   'POST /settings/log/delete': {
     summary: '删除日志文件',
     body: 'JSON: files[] 文件名列表',
@@ -777,18 +786,23 @@ export const endpointDescriptions: Record<string, EndpointDescription> = {
   'GET /nodes': { summary: '获取节点列表' },
   'POST /nodes': {
     summary: '添加节点',
-    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, enabled',
+    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, ssh_key_auth(选 true 用 SSH 密钥免密), ssh_key_path(可选私钥路径), enabled',
+    notes: ['先探测节点连接（SSH + 面板 API 双通道），探测通过才创建；失败返回 400 且不落库，data 携带探测结果。', 'SSH 密钥认证时无需 ssh_password，面板不保存密钥，仅检测免密连通性。'],
   },
   'PUT /nodes/:id': {
     summary: '更新节点',
-    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, enabled；密钥留空表示不修改',
+    body: 'JSON: name, api_base_url, api_key_id, api_key, ssh_host, ssh_port, ssh_user(必须为 root), ssh_password, ssh_key_auth, ssh_key_path, enabled；密钥留空表示不修改',
+    notes: ['先探测节点连接，探测通过才更新；失败返回 400 且不改动原节点。', '密码认证切换为 SSH 密钥认证会清空已存密码；密钥认证切换为密码认证时必须填写 ssh_password。'],
   },
   'DELETE /nodes/:id': { summary: '删除节点' },
-  'POST /nodes/:id/probe': { summary: '探测节点能力' },
+  'POST /nodes/:id/probe': {
+    summary: '探测节点能力',
+    notes: ['校验面板 API 与 SSH 双通道；SSH 密钥认证节点探测免密连通性，失败会附带公钥配置提示。'],
+  },
   'GET /nodes/:id/migration-options': {
     summary: '加载 VM 迁移表单选项',
     query: ['vm_name'],
-    notes: ['返回自动迁移模式、目标存储、目标用户处理方式；目标节点 SSH 用户必须为 root；目标已有同名用户时才返回该用户下的 VPC/安全组。'],
+    notes: ['返回自动迁移模式、目标存储、目标用户处理方式；目标节点 SSH 用户必须为 root；目标已有同名用户时才返回该用户下的交换机/安全组。'],
   },
   'POST /migration/adopt-vm': {
     summary: '目标面板接管迁移 VM',

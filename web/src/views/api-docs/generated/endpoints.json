@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-18T14:36:35.101Z",
-  "count": 342,
+  "generated_at": "2026-08-19T03:31:42.922Z",
+  "count": 338,
   "endpoints": [
     {
       "method": "POST",
@@ -386,17 +386,6 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
-    },
-    {
-      "method": "POST",
-      "path": "/firewall/host/reset-backend",
-      "handler": "ResetHostFirewallBackendCache",
-      "auth": "jwt",
-      "admin": true,
-      "elasticOnly": false,
-      "vmAccess": false,
-      "highRisk": "",
-      "comment": "清除后端探测缓存并重新探测（#R 重新检测）"
     },
     {
       "method": "GET",
@@ -1473,7 +1462,7 @@
       "admin": true,
       "elasticOnly": false,
       "vmAccess": false,
-      "highRisk": "run_password_breach_scan",
+      "highRisk": "",
       "comment": "立即执行泄露密码检测"
     },
     {
@@ -1726,7 +1715,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
-      "highRisk": "create_vm",
+      "highRisk": "",
       "comment": "从模板克隆VM"
     },
     {
@@ -1862,28 +1851,6 @@
       "comment": ""
     },
     {
-      "method": "GET",
-      "path": "/settings/diagnostics/os-support",
-      "handler": "GetOsSupport",
-      "auth": "jwt-only",
-      "admin": true,
-      "elasticOnly": false,
-      "vmAccess": false,
-      "highRisk": "",
-      "comment": "各发行版支持等级 S/A/B/C 与认证硬件矩阵（M8.11/§14 P3-11）"
-    },
-    {
-      "method": "POST",
-      "path": "/settings/diagnostics/refresh",
-      "handler": "RefreshDiagnostics",
-      "auth": "jwt-only",
-      "admin": true,
-      "elasticOnly": false,
-      "vmAccess": false,
-      "highRisk": "",
-      "comment": "重新探测组件版本健康度并返回最新结果（M7.2 / §5.11.5）"
-    },
-    {
       "method": "POST",
       "path": "/settings/jwt-secret/rotate",
       "handler": "RotateJWTSecret",
@@ -1915,6 +1882,17 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
+    },
+    {
+      "method": "GET",
+      "path": "/settings/log/read",
+      "handler": "ReadLogFile",
+      "auth": "jwt-only",
+      "admin": true,
+      "elasticOnly": false,
+      "vmAccess": false,
+      "highRisk": "",
+      "comment": "读取日志文件内容（在线预览，向前分页）"
     },
     {
       "method": "GET",
@@ -2105,17 +2083,6 @@
     },
     {
       "method": "GET",
-      "path": "/system/health/latest",
-      "handler": "GetHealthProbeLatest",
-      "auth": "public",
-      "admin": false,
-      "elasticOnly": false,
-      "vmAccess": false,
-      "highRisk": "",
-      "comment": ""
-    },
-    {
-      "method": "GET",
       "path": "/task/:id",
       "handler": "GetTaskDetail",
       "auth": "jwt",
@@ -2174,7 +2141,7 @@
       "path": "/template/:name",
       "handler": "DeleteTemplate",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "delete_template",
@@ -2185,7 +2152,7 @@
       "path": "/template/:name/delete-preview",
       "handler": "GetDeleteTemplatePreview",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2196,7 +2163,7 @@
       "path": "/template/:name/export",
       "handler": "DeleteExportedTemplateHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2207,7 +2174,7 @@
       "path": "/template/:name/export",
       "handler": "ExportTemplateHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2218,7 +2185,7 @@
       "path": "/template/:name/meta",
       "handler": "UpdateTemplateMeta",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2251,7 +2218,7 @@
       "path": "/template/:name/publish",
       "handler": "UpdateTemplatePublish",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2262,7 +2229,7 @@
       "path": "/template/:name/vms",
       "handler": "GetTemplateVMs",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2273,7 +2240,7 @@
       "path": "/template/download/:filename",
       "handler": "DownloadTemplateExportHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2284,7 +2251,7 @@
       "path": "/template/import",
       "handler": "ImportTemplateHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2295,7 +2262,7 @@
       "path": "/template/import/confirm",
       "handler": "ConfirmImportTemplateHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2306,7 +2273,7 @@
       "path": "/template/import/preview",
       "handler": "PreviewImportTemplateHandler",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2328,7 +2295,7 @@
       "path": "/template/prepare",
       "handler": "PrepareTemplate",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "move_vm_disk_to_template",
@@ -2339,7 +2306,7 @@
       "path": "/template/upload",
       "handler": "TemplateUploadCancel",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2350,7 +2317,7 @@
       "path": "/template/upload/chunk",
       "handler": "TemplateUploadChunk",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2361,7 +2328,7 @@
       "path": "/template/upload/complete",
       "handler": "TemplateUploadComplete",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2372,7 +2339,7 @@
       "path": "/template/upload/init",
       "handler": "TemplateUploadInit",
       "auth": "jwt",
-      "admin": true,
+      "admin": false,
       "elasticOnly": true,
       "vmAccess": false,
       "highRisk": "",
@@ -2553,17 +2520,6 @@
       "vmAccess": false,
       "highRisk": "",
       "comment": ""
-    },
-    {
-      "method": "GET",
-      "path": "/vm-watchdog/events",
-      "handler": "GetVMWatchdogEventList",
-      "auth": "jwt",
-      "admin": true,
-      "elasticOnly": false,
-      "vmAccess": false,
-      "highRisk": "",
-      "comment": "看门狗自动重置等事件列表（M8.9/§14 P2-9）"
     },
     {
       "method": "DELETE",
@@ -3068,7 +3024,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": true,
-      "highRisk": "reinstall_vm",
+      "highRisk": "",
       "comment": ""
     },
     {
@@ -3464,7 +3420,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": true,
-      "highRisk": "create_vm",
+      "highRisk": "",
       "comment": ""
     },
     {
@@ -3475,7 +3431,7 @@
       "admin": false,
       "elasticOnly": true,
       "vmAccess": true,
-      "highRisk": "create_vm",
+      "highRisk": "",
       "comment": ""
     },
     {
