@@ -1152,6 +1152,21 @@ func registerTaskHandlers() {
 		resultJSON, _ := json.Marshal(result)
 		return string(resultJSON), nil
 	})
+
+	// 创建虚拟机额外磁盘任务
+	taskqueue.RegisterHandler(model.TaskTypeVMExtraDiskCreate, func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var params service.VMExtraDiskCreateParams
+		if err := json.Unmarshal([]byte(task.Params), &params); err != nil {
+			return "", fmt.Errorf("解析额外磁盘创建参数失败: %w", err)
+		}
+		result, err := service.CreateVMExtraDisks(ctx, params, progress)
+		if err != nil {
+			return "", err
+		}
+		resultJSON, _ := json.Marshal(result)
+		return string(resultJSON), nil
+	})
+
 	logger.App.Info("任务处理器注册完成")
 }
 

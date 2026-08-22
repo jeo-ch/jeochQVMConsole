@@ -69,6 +69,7 @@ const (
 	TaskTypePasswordBreachNotify            = "password_breach_notify"             // 泄露密码通知
 	TaskTypeStorageTrim                     = "storage_trim"                       // 用户存储空间回收
 	TaskTypeVPCSwitchReconfigure            = "vpc_switch_reconfigure"             // VPC 交换机拓扑重配置
+	TaskTypeVMExtraDiskCreate               = "vm_extra_disk_create"               // 创建虚拟机额外磁盘
 )
 
 // Task 异步任务模型。

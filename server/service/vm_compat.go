@@ -25,6 +25,11 @@ type OSVariantInfo = vmpkg.OSVariantInfo
 type CPUAffinityPreset = vmpkg.CPUAffinityPreset
 type DirectBootConfig = vm_xml.DirectBootConfig
 
+// ── Extra disk types ──
+
+type VMExtraDiskCreateParams = vmpkg.VMExtraDiskCreateParams
+type VMExtraDiskCreateResult = vmpkg.VMExtraDiskCreateResult
+
 // ── Passthrough types ──
 
 type PCIDevice = vmpkg.PCIDevice

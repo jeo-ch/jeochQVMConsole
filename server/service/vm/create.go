@@ -703,39 +703,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 		_ = os.Remove(diskPath)
 		return "", err
 	}
-	// 额外磁盘：在启动前冷添加，避免占用 PCIe 热插槽
-	if len(params.ExtraDisks) > 0 {
-		progressFn(52, "挂载额外磁盘...")
-		var extraDiskFailures []string
-		for i, ed := range params.ExtraDisks {
-			format := ed.Format
-			if format == "" {
-				format = "qcow2"
-			}
-			bus := ed.Bus
-			if bus == "" {
-				bus = diskBus // 使用系统盘的总线类型
-			}
-			diskDir := cloneDir
-			if strings.TrimSpace(ed.StoragePoolID) != "" {
-				resolvedDir, _, resolveErr := D.ResolveVMStorageDir(ed.StoragePoolID, params.IsAdmin)
-				if resolveErr != nil {
-					extraDiskFailures = append(extraDiskFailures, fmt.Sprintf("磁盘%d: 解析存储位置失败: %s", i+1, resolveErr.Error()))
-					progressFn(52, fmt.Sprintf("解析额外磁盘 %d 存储位置失败: %s", i+1, resolveErr.Error()))
-					continue
-				}
-				diskDir = resolvedDir
-			}
-			_, err := D.AddDiskWithBusInDir(params.Name, ed.Size, format, bus, diskDir)
-			if err != nil {
-				extraDiskFailures = append(extraDiskFailures, fmt.Sprintf("磁盘%d: 挂载失败: %s", i+1, err.Error()))
-				progressFn(52, fmt.Sprintf("挂载额外磁盘 %d 失败: %s", i+1, err.Error()))
-			}
-		}
-		if len(extraDiskFailures) > 0 {
-			logger.App.Warn("虚拟机额外磁盘部分失败", "vm", params.Name, "failures", strings.Join(extraDiskFailures, "; "))
-		}
-	}
 	if D.PrepareVMPortSecurityBinding != nil {
 		if err := D.PrepareVMPortSecurityBinding(params.Owner, params.Name, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses); err != nil {
 			utils.ExecCommand("virsh", "undefine", params.Name, "--nvram", "--snapshots-metadata")
@@ -802,7 +769,26 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	progressFn(100, "虚拟机创建完成")
 
-	return diskPath, nil
+	// 提交额外磁盘创建任务（异步）
+	var extraDiskTaskID string
+	if len(params.ExtraDisks) > 0 {
+		taskID, err := CreateVMExtraDisksForHandler(params.Name, params.ExtraDisks, cloneDir, params.IsAdmin, diskBus, params.Owner)
+		if err != nil {
+			logger.App.Warn("提交额外磁盘创建任务失败", "vm", params.Name, "error", err)
+		} else if taskID != "" {
+			extraDiskTaskID = taskID
+			progressFn(100, fmt.Sprintf("额外磁盘创建任务已提交 (ID: %s)", taskID))
+		}
+	}
+
+	// 返回结果包含额外磁盘任务 ID
+	resultMap := map[string]string{
+		"disk_path":           diskPath,
+		"message":             "虚拟机创建成功",
+		"extra_disk_task_id":  extraDiskTaskID,
+	}
+	resultJSON, _ := json.Marshal(resultMap)
+	return string(resultJSON), nil
 }
 
 // ParseCreateVMParams 从 JSON 解析普通创建参数

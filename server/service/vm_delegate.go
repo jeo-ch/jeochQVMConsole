@@ -70,6 +70,14 @@ func ParseCreateVMParams(jsonStr string) (*CreateVMParams, error) {
 	return vmpkg.ParseCreateVMParams(jsonStr)
 }
 
+func CreateVMExtraDisksForHandler(vmName string, extraDisks []ExtraDiskParam, cloneDir string, isAdmin bool, diskBus string, owner string) (string, error) {
+	return vmpkg.CreateVMExtraDisksForHandler(vmName, extraDisks, cloneDir, isAdmin, diskBus, owner)
+}
+
+func CreateVMExtraDisks(ctx context.Context, params VMExtraDiskCreateParams, progress func(int, string)) (*VMExtraDiskCreateResult, error) {
+	return vmpkg.CreateVMExtraDisks(ctx, params, progress)
+}
+
 func ListOSVariants() ([]OSVariantInfo, error) {
 	return vmpkg.ListOSVariants()
 }
