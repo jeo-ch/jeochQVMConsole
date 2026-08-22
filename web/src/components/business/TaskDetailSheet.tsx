@@ -112,7 +112,7 @@ export default function TaskDetailSheet({ task, visible, onClose }: TaskDetailSh
 
           {task.params && (
             <div style={{ marginTop: 16 }}>
-              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-0)' }}>任务参数</h4>
+              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-muted)' }}>任务参数</h4>
               <pre className="qvm-num" style={jsonPreStyle}>
                 {formatJSON(task.params)}
               </pre>
@@ -121,7 +121,7 @@ export default function TaskDetailSheet({ task, visible, onClose }: TaskDetailSh
 
           {task.result && (
             <div style={{ marginTop: 16 }}>
-              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-0)' }}>执行结果</h4>
+              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-muted)' }}>执行结果</h4>
               <pre className="qvm-num" style={jsonPreStyle}>
                 {formatJSON(task.result)}
               </pre>
@@ -130,7 +130,7 @@ export default function TaskDetailSheet({ task, visible, onClose }: TaskDetailSh
 
           {downloadLinks.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-0)' }}>结果下载</h4>
+              <h4 style={{ margin: '0 0 8px', color: 'var(--qvm-text-muted)' }}>结果下载</h4>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {downloadLinks.map((link) => (
                   <Button

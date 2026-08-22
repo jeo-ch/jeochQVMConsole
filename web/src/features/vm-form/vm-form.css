@@ -85,7 +85,7 @@
 .qvm-vf-section-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-section-extra {
   margin-left: auto;
@@ -207,7 +207,7 @@
 .qvm-vf-mode-card-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
   margin-bottom: 8px;
 }
 .qvm-vf-mode-card-desc {
@@ -340,7 +340,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
 .qvm-vf-os-card-name {
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-os-card-examples {
   font-size: 11.5px;
@@ -394,7 +394,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
   margin-bottom: 6px;
   font-weight: 500;
   font-size: 13px;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-import-disk-footer {
   display: flex;
@@ -451,7 +451,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
 .qvm-vf-boot-type {
   font-size: 13px;
   font-weight: 500;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-boot-file {
   font-size: 12px;
@@ -491,7 +491,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
 .qvm-vf-advanced-intro-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
   margin-bottom: 10px;
 }
 .qvm-vf-advanced-intro p {
@@ -523,7 +523,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
 .qvm-vf-config-entry-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-config-entry-summary {
   font-size: 12px;
@@ -557,7 +557,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
   color: var(--qvm-text-2);
 }
 .qvm-vf-summary-grid strong {
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
   font-weight: 500;
 }
 .qvm-vf-confirm-group {
@@ -587,7 +587,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
   flex-shrink: 0;
 }
 .qvm-vf-confirm-value {
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
   text-align: right;
   word-break: break-all;
 }
@@ -606,7 +606,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
   color: var(--qvm-text-1);
 }
 .qvm-vf-confirm-total strong {
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 
 /* ==================== 其它 ==================== */
@@ -621,7 +621,7 @@ body[theme-mode='dark'] .qvm-vf-config-entry-title {
   background: var(--qvm-hover-bg);
   padding: 2px 8px;
   border-radius: 4px;
-  color: var(--qvm-text-0);
+  color: var(--qvm-text-muted);
 }
 .qvm-vf-iso-order {
   display: flex;

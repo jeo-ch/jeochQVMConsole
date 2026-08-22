@@ -21,6 +21,7 @@
   --qvm-text-0: #1b2434;
   --qvm-text-1: #55617a;
   --qvm-text-2: #8b97ad;
+  --qvm-text-muted: #1b2434;
   --qvm-stroke: rgba(30, 41, 59, 0.09);
   --qvm-stroke-strong: rgba(30, 41, 59, 0.16);
   --qvm-card-bg: rgba(255, 255, 255, 0.66);
@@ -59,6 +60,7 @@ body[theme-mode='dark'] {
   --qvm-text-0: #e7ebf3;
   --qvm-text-1: #8b95ab;
   --qvm-text-2: #59627a;
+  --qvm-text-muted: #b8c1cf;
   --qvm-stroke: rgba(148, 163, 184, 0.1);
   --qvm-stroke-strong: rgba(148, 163, 184, 0.2);
   --qvm-card-bg: rgba(255, 255, 255, 0.028);
