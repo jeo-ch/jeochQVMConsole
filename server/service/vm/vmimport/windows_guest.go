@@ -43,7 +43,7 @@ func importVMWindowsDefine(params *ImportVMParams, destDiskPath, format string, 
 	}
 
 	// Generate qcow2 NVRAM
-	nvramClone := fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", params.Name)
+	nvramClone := vm_xml.NVRAMVarsPath(params.Name)
 	if err := vm_xml.CreateQCOW2NVRAMFromTemplate(vm_xml.ResolveOVMFVarsTemplatePath(true), nvramClone); err != nil {
 		_ = os.Remove(destDiskPath)
 		return err
@@ -256,7 +256,7 @@ func importDiskByPathWindowsDefine(params *ImportDiskByPathParams, destDiskPath,
 		networkXML = service.BuildOVSInterfaceXML(macAddr, params.NicModel) + "\n"
 	}
 
-	nvramClone := fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", params.Name)
+	nvramClone := vm_xml.NVRAMVarsPath(params.Name)
 	if err := vm_xml.CreateQCOW2NVRAMFromTemplate(vm_xml.ResolveOVMFVarsTemplatePath(true), nvramClone); err != nil {
 		_ = os.Remove(destDiskPath)
 		return err

@@ -50,7 +50,7 @@ func prepareUEFITemplateNVRAMForClone(domainXML, vmName, templateNVRAMPath strin
 		if vmName == "" {
 			return domainXML, fmt.Errorf("无法生成克隆虚拟机 NVRAM 路径")
 		}
-		cloneNVRAMPath = fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", vmName)
+		cloneNVRAMPath = vm_xml.NVRAMVarsPath(vmName)
 		domainXML = ensureDomainNVRAMPath(domainXML, cloneNVRAMPath)
 	}
 	if err := vm_xml.CreateQCOW2NVRAMFromTemplate(templateNVRAMPath, cloneNVRAMPath); err != nil {

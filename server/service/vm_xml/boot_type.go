@@ -104,11 +104,7 @@ func resolveVMNVRAMPath(name, xmlContent string) string {
 	if path := strings.TrimSpace(ExtractDomainNVRAMPath(xmlContent)); path != "" {
 		return path
 	}
-	cleanName := strings.TrimSpace(name)
-	if cleanName == "" {
-		cleanName = "vm"
-	}
-	return fmt.Sprintf("/var/lib/libvirt/qemu/nvram/%s_VARS.fd", cleanName)
+	return NVRAMVarsPath(name)
 }
 
 // GetVMNVRAMPath 获取虚拟机的NVRAM文件路径（公共函数）
