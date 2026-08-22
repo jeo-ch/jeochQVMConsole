@@ -291,6 +291,15 @@ export default function CreateVmWizard({
         Toast.success('虚拟机包导入任务已提交，请在任务中查看进度')
       } else if (f.create_mode === 'import') {
         // 导入模式
+        // 密码泄露检测（系统初始化时的密码）
+        if (f.system_init_enabled && f.import_password) {
+          const breach = await checkPasswordBreachAsync(f.import_password)
+          if (breach.enabled && breach.breached) {
+            Toast.error('该密码已在已知泄露数据库中发现，请更换为更安全的密码')
+            setSubmitting(false)
+            return
+          }
+        }
         const payload = buildImportPayload(f, { isAdmin, hostCores: options.hostCores })
         if (isAdmin && f.disk_source_type === 'path') {
           await adminImportDisk(payload)
@@ -301,6 +310,15 @@ export default function CreateVmWizard({
         }
       } else if (form.isTemplateSourceMode) {
         // 模板克隆模式
+        // 密码泄露检测（系统初始化时的密码）
+        if (f.system_init_enabled && f.import_password) {
+          const breach = await checkPasswordBreachAsync(f.import_password)
+          if (breach.enabled && breach.breached) {
+            Toast.error('该密码已在已知泄露数据库中发现，请更换为更安全的密码')
+            setSubmitting(false)
+            return
+          }
+        }
         form.ensureTemplateDefaults(options.templates.find((t) => t.name === f.template) || null)
         const cloneCtx = {
           isAdmin,
