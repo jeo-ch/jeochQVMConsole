@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"sync"
 	"time"
+
+	"kvm_console/service/scheduler"
 )
 
 const (
@@ -109,25 +111,6 @@ func MinInt(a, b int) int {
 	return b
 }
 
-// SchedulerDefinition 调度器定义（与 service.SchedulerDefinition 结构一致）。
-type SchedulerDefinition struct {
-	Key         string
-	Name        string
-	Group       string
-	Description string
-	Enabled     func() bool
-}
-
-// SchedulerEventStartInput 调度事件开始参数（与 service.SchedulerEventStartInput 结构一致）。
-type SchedulerEventStartInput struct {
-	SchedulerKey   string
-	SchedulerName  string
-	SchedulerGroup string
-	VMName         string
-	VMBackend      string
-	TriggerReason  string
-}
-
 // HostStats 宿主机资源信息（仅包含 memory 包需要的字段）。
 type HostStats struct {
 	MemTotal int64
@@ -143,8 +126,8 @@ var (
 	HookMemoryGetHostStats             func() (*HostStats, error)
 	HookMemoryIsMaintenanceModeEnabled func() bool
 	HookMemoryInjectMemballoonConfig   func(xmlStr string, enableFPR bool) string
-	HookMemoryRegisterScheduler        func(def SchedulerDefinition)
-	HookMemoryStartSchedulerEvent      func(input SchedulerEventStartInput) (interface{}, error)
+	HookMemoryRegisterScheduler        func(def scheduler.SchedulerDefinition)
+	HookMemoryStartSchedulerEvent      func(input scheduler.SchedulerEventStartInput) (interface{}, error)
 	HookMemoryFinishSchedulerEventOk   func(event interface{}, msg string) error
 	HookMemoryFinishSchedulerEventFail func(event interface{}, msg string) error
 )

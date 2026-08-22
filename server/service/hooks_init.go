@@ -2,6 +2,7 @@ package service
 
 import (
 	"kvm_console/model"
+	"kvm_console/service/scheduler"
 	"kvm_console/service/vm/memory"
 )
 
@@ -42,26 +43,12 @@ func init() {
 	}
 
 	// 动态内存调度器事件（scheduler 中心 → memory 子包反向依赖）
-	// memory 子包自有的 SchedulerDefinition / SchedulerEventStartInput 与 service 根包结构一致，
-	// 需逐字段转换后转发，避免循环 import。
-	memory.HookMemoryRegisterScheduler = func(def memory.SchedulerDefinition) {
-		RegisterScheduler(SchedulerDefinition{
-			Key:         def.Key,
-			Name:        def.Name,
-			Group:       def.Group,
-			Description: def.Description,
-			Enabled:     def.Enabled,
-		})
+	// 直接使用 scheduler 包的共享类型，无需转换
+	memory.HookMemoryRegisterScheduler = func(def scheduler.SchedulerDefinition) {
+		RegisterScheduler(def)
 	}
-	memory.HookMemoryStartSchedulerEvent = func(input memory.SchedulerEventStartInput) (interface{}, error) {
-		return StartSchedulerEvent(SchedulerEventStartInput{
-			SchedulerKey:   input.SchedulerKey,
-			SchedulerName:  input.SchedulerName,
-			SchedulerGroup: input.SchedulerGroup,
-			VMName:         input.VMName,
-			VMBackend:      input.VMBackend,
-			TriggerReason:  input.TriggerReason,
-		})
+	memory.HookMemoryStartSchedulerEvent = func(input scheduler.SchedulerEventStartInput) (interface{}, error) {
+		return StartSchedulerEvent(input)
 	}
 	memory.HookMemoryFinishSchedulerEventOk = func(event interface{}, msg string) error {
 		ev, ok := event.(*model.SchedulerEvent)

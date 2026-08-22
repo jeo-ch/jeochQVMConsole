@@ -8,6 +8,7 @@ import (
 	"kvm_console/config"
 	"kvm_console/logger"
 	"kvm_console/service/libvirt_rpc"
+	"kvm_console/service/scheduler"
 	"kvm_console/utils"
 )
 
@@ -20,7 +21,7 @@ type hostMemoryPressure struct {
 
 func registerDynamicMemorySchedulers() {
 	DynamicMemorySchedulerRegisterOnce.Do(func() {
-		HookMemoryRegisterScheduler(SchedulerDefinition{
+		HookMemoryRegisterScheduler(scheduler.SchedulerDefinition{
 			Key:         SchedulerKeyDynamicMemoryBalloon,
 			Name:        SchedulerNameDynamicMemoryBalloon,
 			Group:       SchedulerGroupDynamicMemory,
@@ -29,11 +30,11 @@ func registerDynamicMemorySchedulers() {
 				return config.GlobalConfig == nil || config.GlobalConfig.DynamicMemorySchedulerEnabled
 			},
 		})
-		HookMemoryRegisterScheduler(SchedulerDefinition{
+		HookMemoryRegisterScheduler(scheduler.SchedulerDefinition{
 			Key:         SchedulerKeyDynamicMemoryVirtioMem,
 			Name:        SchedulerNameDynamicMemoryVirtioMem,
 			Group:       SchedulerGroupDynamicMemory,
-			Description: "基于 Windows virtio-mem 的弹性内存自动伸缩调度。",
+			Description: "基于 Windows virtio-mem 的弹�性内存自动伸缩调度。",
 			Enabled: func() bool {
 				return config.GlobalConfig == nil || config.GlobalConfig.DynamicMemorySchedulerEnabled
 			},
@@ -91,7 +92,7 @@ func startMemorySchedulerEvent(schedulerKey, schedulerName, vmName, vmBackend, r
 	if HookMemoryStartSchedulerEvent == nil {
 		return nil
 	}
-	event, err := HookMemoryStartSchedulerEvent(SchedulerEventStartInput{
+	event, err := HookMemoryStartSchedulerEvent(scheduler.SchedulerEventStartInput{
 		SchedulerKey:   schedulerKey,
 		SchedulerName:  schedulerName,
 		SchedulerGroup: SchedulerGroupDynamicMemory,
