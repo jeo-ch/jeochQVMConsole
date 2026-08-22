@@ -131,6 +131,19 @@
 
 > 阈值类参数均已接入系统设置；调度算法内部的缓冲系数（1.35 / 1.25 / ±256MB）与 10 分钟手动暂停窗口属于策略细节，保持代码内常量。
 
+## Balloon 调度算法内部常量（策略细节，代码内常量）
+
+| 常量 | 数值 | 用途 | 位置 |
+|------|------|------|------|
+| `BalloonExpandMultUsed` | 1.35 | 扩容时：已用内存 × 1.35 作为目标下界 | `scheduler.go:259` |
+| `BalloonExpandMultActual` | 1.25 | 扩容时：当前内存 × 1.25 作为目标下界 | `scheduler.go:259` |
+| `BalloonExpandMinStepMB` | 256 | 扩容最小步进（MB），避免频繁微调 | `scheduler.go:259` |
+| `BalloonReclaimMultUsed` | 1.25 | 回收时：已用内存 × 1.25 作为目标上界 | `scheduler.go:287` |
+| `BalloonReclaimMinStepMB` | 256 | 回收最小步进（MB） | `scheduler.go:288` |
+| `ManualPauseMinutes` | 10 | 手动暂停自动调度时长（分钟） | `config.go:160` |
+
+> 这些常量属于调度策略内部实现细节，当前不暴露为系统设置。如需调整，需修改代码并重新编译。virtio_mem 阈值（扩容/回收使用率）已接入系统设置（`IncreaseThresholdPercent` / `ReclaimThresholdPercent`）。
+
 ## 兼容处理策略
 
 部分 libvirt / QEMU 环境在 balloon 动态内存与 virtio-mem 弹性内存切换后，可能保留旧的 `<devices><memory model='virtio-mem'>` 设备。旧版本在应用 balloon 配置时会全局替换 `<memory>` 节点，可能把设备区内存节点改成缺少 `model` 属性的普通 `<memory>`，导致虚拟机开机前定义域失败。
