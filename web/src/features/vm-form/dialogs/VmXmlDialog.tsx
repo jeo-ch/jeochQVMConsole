@@ -3,7 +3,9 @@
  * 查看 / 编辑持久化 domain XML，保存后立即写入 libvirt 定义。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Banner, Button, Modal, Tag, TextArea, Toast } from '@douyinfe/semi-ui'
+import { Modal } from '@douyinfe/semi-ui'
+import { Banner, Button, Tag, TextArea, Toast } from '@douyinfe/semi-ui'
+import BaseModal from '@/components/common/BaseModal'
 import { getVmXML, updateVmXML } from '@/api/vm'
 
 interface VmXmlDialogProps {
@@ -76,10 +78,10 @@ export default function VmXmlDialog({ visible, vmName, vmStatus, onClose, onSave
   }
 
   return (
-    <Modal
+    <BaseModal
       title="编辑虚拟机 XML"
       visible={visible}
-      onCancel={onClose}
+      onClose={onClose}
       width={920}
       closeOnEsc
       footer={
@@ -120,6 +122,6 @@ export default function VmXmlDialog({ visible, vmName, vmStatus, onClose, onSave
         placeholder="正在加载虚拟机 XML..."
         style={{ fontFamily: 'monospace', fontSize: 12.5 }}
       />
-    </Modal>
+    </BaseModal>
   )
 }

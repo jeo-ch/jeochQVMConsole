@@ -5,7 +5,7 @@
  * 与详情页编辑表单（EditVmForm）共用同一套规则。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Modal, Steps, Toast } from '@douyinfe/semi-ui'
+import { Button, Steps, Toast } from '@douyinfe/semi-ui'
 import {
   IconBolt,
   IconBox,
@@ -18,6 +18,7 @@ import {
   IconSetting,
 } from '@douyinfe/semi-icons'
 import { DiskIcon } from './icons'
+import BaseModal from '@/components/common/BaseModal'
 import { useUserStore } from '@/stores/user'
 import { ROLES } from '@/config/constants'
 import { adminImportDisk, batchCloneVm, cloneVm, createVm } from '@/api/vm'
@@ -497,10 +498,10 @@ export default function CreateVmWizard({
   }, [currentStepName, form.form.create_mode, form.isTemplateSourceMode, followsOvfConfig])
 
   return (
-    <Modal
+    <BaseModal
       title={reg.enabled ? '登记轻量云服务器' : '新建虚拟机'}
       visible={visible}
-      onCancel={onClose}
+      onClose={onClose}
       fullScreen
       maskClosable={false}
       className="qvm-vf-wizard"
@@ -574,6 +575,6 @@ export default function CreateVmWizard({
           </main>
         </div>
       </VmFormProvider>
-    </Modal>
+    </BaseModal>
   )
 }

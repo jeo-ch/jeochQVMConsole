@@ -2,7 +2,8 @@
  * 磁盘扩容弹窗（编辑模式，仅扩大）
  */
 import { useEffect, useState } from 'react'
-import { Banner, InputNumber, Modal, Toast } from '@douyinfe/semi-ui'
+import { Banner, Button, InputNumber, Toast } from '@douyinfe/semi-ui'
+import BaseModal from '@/components/common/BaseModal'
 import TextSwitch from '../sections/TextSwitch'
 import type { VmDiskItem } from '@/api/vm'
 import type { VmEditDevices } from '../useVmEditDevices'
@@ -20,7 +21,6 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
   const { ctx } = useVmFormScope()
   const [size, setSize] = useState<number>(0)
   const [autoGrow, setAutoGrow] = useState(false)
-  const [modalVisible, setModalVisible] = useState(false)
   const [lastDisk, setLastDisk] = useState<VmDiskItem | null>(disk)
   const [submitting, setSubmitting] = useState(false)
   const activeDisk = disk || lastDisk
@@ -36,7 +36,6 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
     if (visible) {
       setSize(0)
       setAutoGrow(false)
-      setModalVisible(true)
     }
   }, [visible, disk])
 
@@ -51,13 +50,13 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
       return
     }
     if (size === currentCapacity) {
-      setModalVisible(false)
+      onClose()
       return
     }
     setSubmitting(true)
     try {
       await devices.resizeDiskAction(activeDisk.device, size, autoGrow)
-      setModalVisible(false)
+      onClose()
     } catch {
       // 错误由请求层统一提示
     } finally {
@@ -66,17 +65,25 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
   }
 
   return (
-    <Modal
+    <BaseModal
       title={`扩容磁盘 ${activeDisk?.device || ''}`}
-      visible={modalVisible}
-      afterClose={onClose}
-      onCancel={() => setModalVisible(false)}
-      onOk={() => void handleOk()}
-      okText="扩容"
-      cancelText="取消"
-      confirmLoading={submitting}
+      visible={visible}
+      onClose={onClose}
       width={420}
       closeOnEsc
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            type="primary"
+            theme="solid"
+            loading={submitting}
+            onClick={() => void handleOk()}
+          >
+            扩容
+          </Button>
+        </>
+      }
     >
       <FormField label="新容量（GB）" tip={`当前容量 ${currentCapacity} GB，只能扩大不能缩小`}>
         <InputNumber
@@ -100,6 +107,6 @@ export default function ResizeDiskDialog({ visible, disk, devices, onClose }: Re
           description="该操作将异步修改来宾系统分区。宿主机扩容成功而来宾阶段失败时，可从任务结果重试来宾阶段。"
         />
       )}
-    </Modal>
+    </BaseModal>
   )
 }

@@ -3,7 +3,8 @@
  * 普通用户从我的存储选择磁盘文件；管理员可用绝对路径导入（异步任务）。
  */
 import { useEffect, useState } from 'react'
-import { Banner, Input, Modal, Radio, Select } from '@douyinfe/semi-ui'
+import { Banner, Button, Input, Radio, Select } from '@douyinfe/semi-ui'
+import BaseModal from '@/components/common/BaseModal'
 import TextSwitch from '../sections/TextSwitch'
 import { useVmFormScope } from '../scopeContext'
 import type { VmEditDevices } from '../useVmEditDevices'
@@ -87,17 +88,26 @@ export default function AttachDiskDialog({ visible, devices, onClose }: AttachDi
   }
 
   return (
-    <Modal
+    <BaseModal
       title="导入磁盘到虚拟机"
       visible={visible}
-      onCancel={onClose}
-      onOk={() => void handleOk()}
-      okText={isAdmin && sourceType === 'path' ? '提交导入任务' : '挂载'}
-      cancelText="取消"
-      okButtonProps={{ disabled: submitDisabled }}
-      confirmLoading={submitting}
+      onClose={onClose}
       width={560}
       closeOnEsc
+      footer={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            type="primary"
+            theme="solid"
+            loading={submitting}
+            disabled={submitDisabled}
+            onClick={() => void handleOk()}
+          >
+            {isAdmin && sourceType === 'path' ? '提交导入任务' : '挂载'}
+          </Button>
+        </>
+      }
     >
       {isAdmin && (
         <FormField label="磁盘来源">
@@ -202,6 +212,6 @@ export default function AttachDiskDialog({ visible, devices, onClose }: AttachDi
       {autoMount && (
         <Banner type="warning" closeIcon={null} description="自动挂载通过 QEMU Guest Agent 异步执行，请在任务中心查看每个卷的处理结果。" />
       )}
-    </Modal>
+    </BaseModal>
   )
 }

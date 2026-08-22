@@ -2,7 +2,8 @@
  * 动态内存详细配置弹窗（创建 / 编辑共用）
  */
 import { useEffect } from 'react'
-import { Banner, Button, InputNumber, Modal, Radio, Tag } from '@douyinfe/semi-ui'
+import { Banner, Button, InputNumber, Radio, Tag } from '@douyinfe/semi-ui'
+import BaseModal from '@/components/common/BaseModal'
 import { useVmFormScope } from '../scopeContext'
 import { recommendedMemoryDynamicValues } from '../recommend'
 import TextSwitch from '../sections/TextSwitch'
@@ -60,10 +61,12 @@ export default function MemoryDynamicDialog({ visible, onClose }: MemoryDynamicD
     f.memory_compat_mode === 'dynamic' ? 'green' : f.memory_compat_mode === 'pending_apply' ? 'orange' : 'grey'
 
   return (
-    <Modal
+    <BaseModal
       title="动态内存配置"
       visible={visible}
-      onCancel={onClose}
+      onClose={onClose}
+      width={640}
+      closeOnEsc
       footer={
         <>
           <Button onClick={resetDefaults}>推荐值</Button>
@@ -72,8 +75,6 @@ export default function MemoryDynamicDialog({ visible, onClose }: MemoryDynamicD
           </Button>
         </>
       }
-      width={640}
-      closeOnEsc
     >
       <Banner
         type="warning"
@@ -221,6 +222,6 @@ export default function MemoryDynamicDialog({ visible, onClose }: MemoryDynamicD
           )}
         </>
       )}
-    </Modal>
+    </BaseModal>
   )
 }
