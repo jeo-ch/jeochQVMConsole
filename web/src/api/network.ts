@@ -51,17 +51,23 @@ export function unbindStaticIP(data: { vm_name: string; ip: string }) {
 
 /** 端口转发规则 */
 export interface PortForwardRule {
-  id: number
+  id: string
   rule_key: string
   vm_name: string
   protocol: string // tcp / udp
   host_port: string
   dest_ip: string
   dest_port: string
+  source_ip?: string // 入站 IP 白名单（CIDR，0.0.0.0/0 = 不限制）
   access_ip?: string
   access_address?: string
   firewall_key?: string
   region_filter_enabled?: boolean
+}
+
+/** 获取当前访问面板的客户端 IP（端口转发入站 IP 白名单快速填充） */
+export function getClientIP() {
+  return service.get<unknown, ApiResponse<{ ip: string }>>('/network/client-ip')
 }
 
 /** 获取端口转发列表 */
@@ -69,32 +75,33 @@ export function getPortForwardList() {
   return service.get<unknown, ApiResponse<PortForwardRule[]>>('/network/port-forward/list')
 }
 
-/** 添加端口转发（host_port 留空自动分配） */
+/** 添加端口转发（host_port 留空自动分配；source_ip 留空或不限时填 0.0.0.0/0） */
 export function addPortForward(data: {
   vm_name: string
   vm_ip: string
   host_port: string
   vm_port: string
   protocol: string
+  source_ip?: string
 }) {
   return service.post<unknown, ApiResponse<unknown>>('/network/port-forward/add', data)
 }
 
 /** 编辑端口转发 */
 export function updatePortForward(
-  id: number,
-  data: { vm_name: string; vm_ip: string; host_port: string; vm_port: string; protocol: string },
+  id: string,
+  data: { vm_name: string; vm_ip: string; host_port: string; vm_port: string; protocol: string; source_ip?: string },
 ) {
-  return service.put<unknown, ApiResponse<unknown>>(`/network/port-forward/${id}`, data)
+  return service.put<unknown, ApiResponse<unknown>>(`/network/port-forward/${encodeURIComponent(id)}`, data)
 }
 
 /** 删除端口转发（按 ID） */
-export function deletePortForward(id: number) {
-  return service.delete<unknown, ApiResponse<unknown>>(`/network/port-forward/${id}`)
+export function deletePortForward(id: string) {
+  return service.delete<unknown, ApiResponse<unknown>>(`/network/port-forward/${encodeURIComponent(id)}`)
 }
 
 /** 批量删除端口转发 */
-export function batchDeletePortForward(data: { ids: number[] }) {
+export function batchDeletePortForward(data: { ids: string[] }) {
   return service.post<unknown, ApiResponse<unknown>>('/network/port-forward/batch-delete', data)
 }
 

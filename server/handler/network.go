@@ -8,10 +8,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"kvm_console/middleware"
 	"kvm_console/model"
 	"kvm_console/service"
 	netservice "kvm_console/service/network"
 )
+
+// GetMyIP 获取当前访问面板的客户端 IP（用于端口转发入站 IP 白名单快速填充）
+func GetMyIP(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "ok",
+		"data": gin.H{
+			"ip": middleware.GetClientIP(c),
+		},
+	})
+}
 
 // GetStaticIPList 获取静态 IP 列表（根据用户权限过滤）
 func GetStaticIPList(c *gin.Context) {
@@ -208,6 +220,7 @@ type AddPortForwardRequest struct {
 	VMPort   string `json:"vm_port" binding:"required"` // 虚拟机端口
 	HostPort string `json:"host_port"`                  // 宿主机端口，留空自动分配
 	Protocol string `json:"protocol"`                   // tcp/udp/both
+	SourceIP string `json:"source_ip"`                  // 入站 IP 白名单（IPv4/CIDR，空或 0.0.0.0/0 = 不限制）
 }
 
 func portForwardProtocolCount(protocol string) int {
@@ -301,6 +314,7 @@ func AddPortForward(c *gin.Context) {
 		HostPort:       hostPort,
 		VMPort:         req.VMPort,
 		Protocol:       req.Protocol,
+		SourceIP:       req.SourceIP,
 		Comment:        req.VMName,
 		CreatedBy:      usernameStr,
 		CreatedByAdmin: roleStr == "admin",
@@ -313,7 +327,7 @@ func AddPortForward(c *gin.Context) {
 		})
 		return
 	}
-	if err := service.EnsureSecurityGroupAllowsPortForward(req.VMName, req.Protocol, req.VMPort); err != nil {
+	if err := service.EnsureSecurityGroupAllowsPortForward(req.VMName, req.Protocol, req.VMPort, req.SourceIP); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
 			"message": "端口转发已添加，但自动补安全组策略失败: " + err.Error(),
@@ -353,19 +367,12 @@ type UpdatePortForwardRequest struct {
 	VMPort   string `json:"vm_port"`
 	HostPort string `json:"host_port"`
 	Protocol string `json:"protocol"`
+	SourceIP string `json:"source_ip"` // 入站 IP 白名单（IPv4/CIDR，空或 0.0.0.0/0 = 不限制）
 }
 
 // UpdatePortForward 编辑单条端口转发
 func UpdatePortForward(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    400,
-			"message": "无效的规则编号",
-		})
-		return
-	}
+	ruleID := c.Param("id")
 
 	var req UpdatePortForwardRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -376,7 +383,7 @@ func UpdatePortForward(c *gin.Context) {
 		return
 	}
 
-	currentRule, err := netservice.GetPortForwardRuleByID(id)
+	currentRule, err := netservice.GetPortForwardRuleByID(ruleID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"code":    404,
@@ -459,11 +466,12 @@ func UpdatePortForward(c *gin.Context) {
 			return
 		}
 	}
-	if err := netservice.UpdatePortForward(id, &netservice.PortForwardUpdateParams{
+	if err := netservice.UpdatePortForward(ruleID, &netservice.PortForwardUpdateParams{
 		VMIP:           vmIP,
 		VMPort:         req.VMPort,
 		HostPort:       req.HostPort,
 		Protocol:       req.Protocol,
+		SourceIP:       req.SourceIP,
 		Comment:        comment,
 		CreatedBy:      usernameStr,
 		CreatedByAdmin: roleStr == "admin",
@@ -488,7 +496,7 @@ func UpdatePortForward(c *gin.Context) {
 			forwardProto = strings.TrimSpace(currentRule.Protocol)
 		}
 		if forwardVMPort != "" {
-			if err := service.EnsureSecurityGroupAllowsPortForward(comment, forwardProto, forwardVMPort); err != nil {
+			if err := service.EnsureSecurityGroupAllowsPortForward(comment, forwardProto, forwardVMPort, req.SourceIP); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"code":    500,
 					"message": "端口转发规则已更新，但自动补安全组策略失败: " + err.Error(),
@@ -517,7 +525,7 @@ func UpdatePortForward(c *gin.Context) {
 
 // BatchDeletePortForwardRequest 批量删除端口转发请求
 type BatchDeletePortForwardRequest struct {
-	IDs []int `json:"ids" binding:"required"`
+	IDs []string `json:"ids" binding:"required"`
 }
 
 // BatchDeletePortForward 批量删除端口转发
@@ -530,7 +538,7 @@ func BatchDeletePortForward(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.IDs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
-			"message": "参数错误: 需要规则编号列表",
+			"message": "参数错误: 需要规则标识列表",
 		})
 		return
 	}
@@ -539,8 +547,8 @@ func BatchDeletePortForward(c *gin.Context) {
 	if role != "admin" {
 		username, _ := c.Get("username")
 		usernameStr := strings.TrimSpace(username.(string))
-		for _, id := range req.IDs {
-			rule, err := netservice.GetPortForwardRuleByID(id)
+		for _, ruleID := range req.IDs {
+			rule, err := netservice.GetPortForwardRuleByID(ruleID)
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{
 					"code":    404,
@@ -577,21 +585,13 @@ func DeletePortForward(c *gin.Context) {
 	if !requireHighRiskVerification(c, "delete_port_forward") {
 		return
 	}
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    400,
-			"message": "无效的规则编号",
-		})
-		return
-	}
+	ruleID := c.Param("id")
 
 	role, _ := c.Get("role")
 	if role != "admin" {
 		username, _ := c.Get("username")
 		usernameStr := strings.TrimSpace(username.(string))
-		rule, err := netservice.GetPortForwardRuleByID(id)
+		rule, err := netservice.GetPortForwardRuleByID(ruleID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code":    404,
@@ -608,7 +608,7 @@ func DeletePortForward(c *gin.Context) {
 		}
 	}
 
-	if err := netservice.DeletePortForward(id); err != nil {
+	if err := netservice.DeletePortForward(ruleID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    500,
 			"message": err.Error(),

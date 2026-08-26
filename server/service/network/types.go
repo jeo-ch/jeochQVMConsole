@@ -26,19 +26,26 @@ type DHCPLeaseInfo struct {
 
 // PortForwardRule 端口转发规则
 type PortForwardRule struct {
-	ID                    int    `json:"id"`                      // 规则编号
+	ID                    string `json:"id"`                      // API 稳定规则标识
 	Protocol              string `json:"protocol"`                // tcp/udp
 	HostPort              string `json:"host_port"`               // 宿主机端口
 	AccessIP              string `json:"access_ip"`               // 对外访问 IP
 	AccessAddress         string `json:"access_address"`          // 对外完整访问地址
 	DestIP                string `json:"dest_ip"`                 // 目标 IP
 	DestPort              string `json:"dest_port"`               // 目标端口
+	SourceIP              string `json:"source_ip"`               // 入站 IP 白名单（CIDR，0.0.0.0/0 = 不限制）
 	VMName                string `json:"vm_name"`                 // 关联虚拟机
 	OwnerUsername         string `json:"owner_username"`          // 归属用户
 	FirewallKey           string `json:"firewall_key"`            // 防火墙豁免使用的稳定标识
 	RegionFilterEnabled   bool   `json:"region_filter_enabled"`   // 是否继承入站区域限制
 	RegionFilterInherited bool   `json:"region_filter_inherited"` // 是否继承全局入站策略
 	RuleKey               string `json:"rule_key"`                // 稳定规则标识
+}
+
+// APIKey 返回供 API 更新和删除使用的稳定标识。
+// 宿主机端口和协议在同一时刻唯一，避免 iptables 行号在规则变更后发生偏移。
+func (r PortForwardRule) APIKey() string {
+	return strings.ToLower(strings.TrimSpace(r.Protocol)) + "|" + strings.TrimSpace(r.HostPort)
 }
 
 // StableKey 返回端口转发规则的稳定标识，避免依赖 iptables 行号。
@@ -54,7 +61,8 @@ type PortForwardAddParams struct {
 	VMIP           string `json:"vm_ip"`
 	HostPort       string `json:"host_port"`
 	VMPort         string `json:"vm_port"`
-	Protocol       string `json:"protocol"` // tcp/udp/both
+	Protocol       string `json:"protocol"`  // tcp/udp/both
+	SourceIP       string `json:"source_ip"` // 入站 IP 白名单（CIDR，空/0.0.0.0/0 = 不限制）
 	Comment        string `json:"comment"`
 	CreatedBy      string `json:"created_by"`
 	CreatedByAdmin bool   `json:"created_by_admin"`
@@ -74,6 +82,7 @@ type PortForwardUpdateParams struct {
 	HostPort       string `json:"host_port"`
 	VMPort         string `json:"vm_port"`
 	Protocol       string `json:"protocol"`
+	SourceIP       string `json:"source_ip"` // 入站 IP 白名单（CIDR，空/0.0.0.0/0 = 不限制）
 	Comment        string `json:"comment"`
 	CreatedBy      string `json:"created_by"`
 	CreatedByAdmin bool   `json:"created_by_admin"`
