@@ -135,6 +135,7 @@ func main() {
 	service.StartVMWatchdog()         // M8.9/§14 P2-9：VM 看门狗（Guest Agent 连续失联自动硬重置 + 大页建议）
 	service.StartHealthProbe()        // M8.10/§14 P2-10：周期健康探针（每分钟写 .health/latest.json，Dashboard 状态灯轮询）
 	service.StartStorageTrimScheduler()
+	service.StartUserSessionCleanup()
 
 	// 同步 SSH 拒绝配置（确保与数据库状态一致）
 	service.SyncSSHDenyConfig()

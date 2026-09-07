@@ -100,6 +100,8 @@ type Config struct {
 	SiteTitle string `json:"site_title"`
 	// 开发环境模式，启用后绕过安全验证
 	DevelopmentMode bool `json:"development_mode"`
+	// 是否允许来自非局域网地址的请求，默认关闭
+	PublicAccessEnabled bool `json:"public_access_enabled"`
 	// systemd 中当前面板服务的 unit 名称
 	ServiceUnitName string `json:"service_unit_name"`
 	// 维护模式，启用后阻止 VM 启动类操作
@@ -134,7 +136,7 @@ type Config struct {
 	DynamicMemoryReclaimThresholdPercent  int  `json:"dynamic_memory_reclaim_threshold_percent"`
 	DynamicMemoryCooldownSeconds          int  `json:"dynamic_memory_cooldown_seconds"`
 	DynamicMemoryObservationHours         int  `json:"dynamic_memory_observation_hours"`
-	SchedulerEventRetentionHours int `json:"scheduler_event_retention_hours"`
+	SchedulerEventRetentionHours          int  `json:"scheduler_event_retention_hours"`
 	// VPC 逻辑交换机配置
 	VPCSubnetPrefix string `json:"vpc_subnet_prefix"`
 	VPCVLANStart    int    `json:"vpc_vlan_start"`
@@ -278,6 +280,7 @@ func Init() {
 		PublicBaseURL:                         getEnv("KVM_PUBLIC_BASE_URL", ""),
 		SiteTitle:                             getEnv("KVM_SITE_TITLE", DefaultSiteTitle),
 		DevelopmentMode:                       getEnvBool("KVM_DEVELOPMENT_MODE", false),
+		PublicAccessEnabled:                   getEnvBool("KVM_PUBLIC_ACCESS_ENABLED", false),
 		ServiceUnitName:                       getEnv("KVM_SERVICE_UNIT_NAME", "kvm-console.service"),
 		MaintenanceMode:                       getEnvBool("KVM_MAINTENANCE_MODE", false),
 		MaintenanceServiceUnits:               getEnv("KVM_MAINTENANCE_SERVICE_UNITS", defaultMaintenanceServiceUnits),
@@ -382,6 +385,13 @@ func Init() {
 
 // ValidateSecurity 启动后安全检查（需在数据库设置加载完成后调用）
 func ValidateSecurity() {
+	if GlobalConfig.PublicAccessEnabled && GlobalConfig.DevelopmentMode {
+		// 公网模式必须始终使用完整安全校验；即使历史环境变量同时开启开发模式，也按安全策略关闭开发模式。
+		fmt.Fprintln(os.Stderr, "[安全警告] 公网访问与开发模式不能同时启用，已自动关闭开发模式")
+		GlobalConfig.DevelopmentMode = false
+		os.Setenv("KVM_DEVELOPMENT_MODE", "false")
+		SyncEnvFile()
+	}
 	// 开发模式安全警告
 	if GlobalConfig.DevelopmentMode {
 		fmt.Fprintf(os.Stderr, "\n[安全警告] ================================================\n")
@@ -535,6 +545,7 @@ var PersistableKeys = []string{
 	"public_base_url",
 	"site_title",
 	"development_mode",
+	"public_access_enabled",
 	"maintenance_mode",
 	"maintenance_service_units",
 	"maintenance_vm_shutdown_timeout_seconds",
@@ -631,14 +642,15 @@ var keyToEnvVar = map[string]string{
 	"public_base_url":           "KVM_PUBLIC_BASE_URL",
 	"site_title":                "KVM_SITE_TITLE",
 	"development_mode":          "KVM_DEVELOPMENT_MODE",
+	"public_access_enabled":     "KVM_PUBLIC_ACCESS_ENABLED",
 	"maintenance_mode":          "KVM_MAINTENANCE_MODE",
 	"maintenance_service_units": "KVM_MAINTENANCE_SERVICE_UNITS",
-	"maintenance_vm_shutdown_timeout_seconds": "KVM_MAINTENANCE_VM_SHUTDOWN_TIMEOUT_SECONDS",
-	"vm_watchdog_enabled":                            "KVM_VM_WATCHDOG_ENABLED",
-	"vm_watchdog_interval_seconds":                   "KVM_VM_WATCHDOG_INTERVAL_SECONDS",
-	"vm_watchdog_max_misses":                         "KVM_VM_WATCHDOG_MAX_MISSES",
-	"health_dir":                                     "KVM_HEALTH_DIR",
-	"app_version":                                    "APP_VERSION",
+	"maintenance_vm_shutdown_timeout_seconds":   "KVM_MAINTENANCE_VM_SHUTDOWN_TIMEOUT_SECONDS",
+	"vm_watchdog_enabled":                       "KVM_VM_WATCHDOG_ENABLED",
+	"vm_watchdog_interval_seconds":              "KVM_VM_WATCHDOG_INTERVAL_SECONDS",
+	"vm_watchdog_max_misses":                    "KVM_VM_WATCHDOG_MAX_MISSES",
+	"health_dir":                                "KVM_HEALTH_DIR",
+	"app_version":                               "APP_VERSION",
 	"smtp_host":                                 "KVM_SMTP_HOST",
 	"smtp_port":                                 "KVM_SMTP_PORT",
 	"smtp_username":                             "KVM_SMTP_USERNAME",
@@ -777,6 +789,10 @@ func (c *Config) LoadFromDB(settings map[string]string) {
 		case "development_mode":
 			if v, err := strconv.ParseBool(value); err == nil {
 				c.DevelopmentMode = v
+			}
+		case "public_access_enabled":
+			if v, err := strconv.ParseBool(value); err == nil {
+				c.PublicAccessEnabled = v
 			}
 		case "maintenance_mode":
 			if v, err := strconv.ParseBool(value); err == nil {
@@ -1028,15 +1044,16 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"public_base_url":           c.PublicBaseURL,
 		"site_title":                c.SiteTitle,
 		"development_mode":          strconv.FormatBool(c.DevelopmentMode),
+		"public_access_enabled":     strconv.FormatBool(c.PublicAccessEnabled),
 		"maintenance_mode":          strconv.FormatBool(c.MaintenanceMode),
 		"maintenance_service_units": c.MaintenanceServiceUnits,
-		"maintenance_vm_shutdown_timeout_seconds": strconv.Itoa(c.MaintenanceVMShutdownTimeoutSeconds),
-		"vm_watchdog_enabled":            strconv.FormatBool(c.VMWatchdogEnabled),
-		"vm_watchdog_interval_seconds":   strconv.Itoa(c.VMWatchdogIntervalSeconds),
-		"vm_watchdog_max_misses":         strconv.Itoa(c.VMWatchdogMaxMisses),
-		"health_dir":                     c.HealthDir,
-		"app_version":                    c.AppVersion,
-		"smtp_host":                      c.SMTPHost,
+		"maintenance_vm_shutdown_timeout_seconds":   strconv.Itoa(c.MaintenanceVMShutdownTimeoutSeconds),
+		"vm_watchdog_enabled":                       strconv.FormatBool(c.VMWatchdogEnabled),
+		"vm_watchdog_interval_seconds":              strconv.Itoa(c.VMWatchdogIntervalSeconds),
+		"vm_watchdog_max_misses":                    strconv.Itoa(c.VMWatchdogMaxMisses),
+		"health_dir":                                c.HealthDir,
+		"app_version":                               c.AppVersion,
+		"smtp_host":                                 c.SMTPHost,
 		"smtp_port":                                 strconv.Itoa(c.SMTPPort),
 		"smtp_username":                             c.SMTPUsername,
 		"smtp_password_enc":                         c.SMTPPasswordEnc,
@@ -1071,7 +1088,7 @@ func (c *Config) ToSettingsMap() map[string]string {
 		"default_disk_iops_read":                    strconv.Itoa(c.DefaultDiskIOPSRead),
 		"default_disk_iops_write":                   strconv.Itoa(c.DefaultDiskIOPSWrite),
 		"batch_clone_max_concurrency":               strconv.Itoa(c.BatchCloneMaxConcurrency),
-		"task_queue_workers":                      strconv.Itoa(c.TaskQueueWorkers),
+		"task_queue_workers":                        strconv.Itoa(c.TaskQueueWorkers),
 		"jwt_secret_rotate_hours":                   strconv.Itoa(c.JWTSecretRotateHours),
 		"use_go_libvirt":                            strconv.FormatBool(c.UseGoLibvirt),
 		"log_dir":                                   c.LogDir,

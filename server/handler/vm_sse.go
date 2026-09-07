@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"kvm_console/middleware"
 	"kvm_console/service"
 )
 
@@ -40,6 +41,11 @@ func GetVmListSSE(c *gin.Context) {
 		case <-clientGone:
 			return
 		case <-ticker.C:
+			if !middleware.StreamingSessionValid(c) {
+				c.SSEvent("session_expired", gin.H{"message": "登录会话因长时间未操作已失效，请重新登录"})
+				c.Writer.Flush()
+				return
+			}
 			if isAdmin {
 				service.TriggerAdminVMCacheRefreshIfNeeded()
 			}
@@ -97,6 +103,11 @@ func GetVmDetailSSE(c *gin.Context) {
 		case <-clientGone:
 			return
 		case <-ticker.C:
+			if !middleware.StreamingSessionValid(c) {
+				c.SSEvent("session_expired", gin.H{"message": "登录会话因长时间未操作已失效，请重新登录"})
+				c.Writer.Flush()
+				return
+			}
 			vm, err := service.GetVM(name)
 			if err != nil {
 				continue

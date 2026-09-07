@@ -49,7 +49,15 @@ const groups = new Map([
 
 const mergeMiddleware = (base, text) => ({
   ...base,
-  auth: text.includes('JWTTokenTypeMiddleware') || text.includes('TokenTypeMiddleware') ? 'jwt-only' : text.includes('AuthMiddleware') ? 'jwt' : base.auth,
+  auth: text.includes('JWTTokenTypeMiddleware')
+    ? 'jwt-only'
+    : /TokenTypeMiddleware\([^)]*"login"/.test(text)
+      ? 'login'
+      : text.includes('TokenTypeMiddleware')
+        ? 'jwt-only'
+        : text.includes('AuthMiddleware')
+          ? 'jwt'
+          : base.auth,
   admin: base.admin || text.includes('AdminMiddleware'),
   elasticOnly: base.elasticOnly || text.includes('ElasticCloudOnlyMiddleware'),
   vmAccess: base.vmAccess || text.includes('VMAccessMiddleware'),
