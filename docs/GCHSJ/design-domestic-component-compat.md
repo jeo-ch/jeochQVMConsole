@@ -642,6 +642,7 @@ install_files
    - 任一规则写入失败即中止，不留下半成品 zone；失败时还原旧 zone 文件。
    - `Enable(progress)` 的进度文案与 ufw 后端共用一组。
    - **重复 Enable 幂等（新增）**：ufw 后端 `ensureHostFirewallRule` 已按 `hostFirewallRuleEquivalent`（host.go:425-430）对既有规则去重，重复点「启用」不产生重复规则；firewalld 后端每次 Enable 整段重渲染 `qvm-host.xml` 原子替换，天然幂等。auto-confirm / update 模式下重放同一批规则均不重复落盘。
+   - **新增 zone 幂等（修正）**：firewalld 后端 `EnsureRule()`（新增/编辑宿主机规则）先调 `firewalldEnsureZoneExists()` 执行 `firewall-cmd --permanent --new-zone qvm-host`。当 zone 已存在（`Enable()` 已创建，或已执行过一次 EnsureRule）时，firewalld 返回 `Error: NAME_CONFLICT: new_zone(): 'qvm-host'`，旧版幂等判断仅匹配 `exists`/`already` 子串，误报为「创建 qvm-host zone 失败」。修正：将 `NAME_CONFLICT` 并入幂等放行分支（`backend_firewalld.go` `firewalldEnsureZoneExists`），使加规则路径与 Enable 路径一致幂等。
 6. **Docker 兼容需重验（新增，运维补充项 #D，v0.5 修正结论）**：`host.go:43-44` 现硬编码 `DockerCompatible=true`（文案「不写入 Docker 链，Docker bridge 模式不受面板防火墙约束」）。**修正**：`docker -p` 发布端口经 **PREROUTING DNAT → FORWARD → DOCKER 链** 到达容器，**不经 INPUT**；在 iptables 后端下 qvm-host zone DROP 与 `docker0` 通常不冲突（Docker 规则先于 firewalld 链），但在 **nftables 后端下 firewalld `--reload` 后链注册顺序不保证**，存在 DROP 先于 DOCKER 链求值的风险。真正需要重验的是：
    - firewalld 自身的 **FORWARD 策略**（若系统 firewalld 策略默认丢转发，需放行 docker0/bridge 转发）；以及 firewalld `--reload` 是否波及 Docker 自建的 DOCKER/DOCKER-USER 链。
    - **`docker0` 接口绑定**：推荐将 `docker0` 加入 `trusted`（ACCEPT）或 policy egress，保证 Docker 转发不受 qvm-host DROP 影响（与决策 4 同一机制）。

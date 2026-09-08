@@ -429,7 +429,9 @@ func firewalldEnsureZoneExists() error {
 	}
 	result := execFirewalld("--permanent", "--new-zone", firewalldZoneName)
 	if result.Error != nil {
-		if strings.Contains(result.Stderr, "exists") || strings.Contains(result.Stderr, "already") {
+		// 幂等：zone 已存在时 firewalld 返回 NAME_CONFLICT（文案 "Error: NAME_CONFLICT: new_zone(): 'qvm-host'"），
+		// 旧版判断仅匹配 exists/already 无法覆盖，须显式放行。
+		if strings.Contains(result.Stderr, "exists") || strings.Contains(result.Stderr, "already") || strings.Contains(result.Stderr, "NAME_CONFLICT") {
 			return nil
 		}
 		return &FirewallError{Code: FirewalldCommandFailed, Message: "创建 qvm-host zone 失败: " + result.Stderr, Hint: "firewall-cmd --get-zones"}
