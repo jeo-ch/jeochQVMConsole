@@ -235,9 +235,6 @@ func revertExternalSnapshot(vmName, snapName string) error {
 			}
 		}
 	}
-			}
-		}
-	}
 
 	// 9. 启动前主动修复恢复后磁盘和快照 overlay 的访问权限。
 	// 自定义存储池路径还需要 AppArmor 允许 virt-aa-helper 读取 backing chain。
