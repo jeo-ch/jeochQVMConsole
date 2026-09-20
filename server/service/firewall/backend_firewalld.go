@@ -321,7 +321,7 @@ type firewalldZoneXML struct {
 	XMLName     xml.Name             `xml:"zone"`
 	Short       string               `xml:"short"`
 	Description string               `xml:"description,omitempty"`
-	Target      string               `xml:"target"`
+	Target      string               `xml:"target,attr"`
 	Interfaces  []firewalldInterface `xml:"interface"`
 	Sources     []firewalldSource    `xml:"source"`
 	Ports       []firewalldPort      `xml:"port"`
@@ -376,7 +376,7 @@ func writeFirewalldZoneAtomically(uplinks, vmBridges []string) error {
 func mustMarshalZoneXML(z firewalldZoneXML) string {
 	data, err := xml.MarshalIndent(z, "", "  ")
 	if err != nil {
-		return "<zone><target>DROP</target></zone>"
+		return `<zone target="DROP"></zone>`
 	}
 	return string(data)
 }
@@ -684,7 +684,9 @@ func firewalldDeleteZone(zone string) error {
 func firewalldDeletePolicy(policy string) error {
 	result := execFirewalld("--permanent", "--delete-policy", policy)
 	if result.Error != nil {
-		if strings.Contains(result.Stderr, "does not exist") || strings.Contains(result.Stderr, "No policy") {
+		if strings.Contains(result.Stderr, "does not exist") ||
+			strings.Contains(result.Stderr, "No policy") ||
+			strings.Contains(result.Stderr, "INVALID_POLICY") {
 			return nil
 		}
 		return &FirewallError{Code: FirewalldCommandFailed, Message: "删除 policy " + policy + " 失败: " + result.Stderr, Hint: "firewall-cmd --get-policies"}
