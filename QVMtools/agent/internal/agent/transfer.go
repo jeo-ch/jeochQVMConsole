@@ -115,11 +115,14 @@ func prepareSSHKey(tgt TargetSSH) (string, error) {
 }
 
 // sshCommand 构造 SSH 执行命令：password 模式自动注入 sshpass 前缀。
+// 使用 -e 环境变量传递密码，避免密码暴露在 /proc/*/cmdline 中。
 func sshCommand(tgt TargetSSH, keyFile string, remoteCmd ...string) *exec.Cmd {
 	args := buildSSHArgs(tgt, keyFile, remoteCmd...)
 	if tgt.AuthMethod == "password" && tgt.Password != "" {
-		sshpassArgs := append([]string{"-p", tgt.Password, "ssh"}, args...)
-		return exec.Command("sshpass", sshpassArgs...)
+		sshpassArgs := append([]string{"-e", "ssh"}, args...)
+		cmd := exec.Command("sshpass", sshpassArgs...)
+		cmd.Env = append(os.Environ(), "SSHPASS="+tgt.Password)
+		return cmd
 	}
 	return exec.Command("ssh", args...)
 }

@@ -28,16 +28,19 @@ func main() {
 	}
 	defer c.Close()
 
+	c.SetToken(*token)
+
 	if err := c.Register(*token, agent.HostInfo()); err != nil {
 		log.Fatalf("register failed: %v", err)
 	}
-	log.Printf("agent %s registered with gateway %s", agent.Version, *gatewayURL)
+	log.Printf("[agent] %s 已注册到网关 %s", agent.Version, *gatewayURL)
 
 	// 优雅退出：收到终止信号时关闭 WS 连接。
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
+		log.Printf("[agent] 收到终止信号，正在退出...")
 		c.Close()
 		os.Exit(0)
 	}()
