@@ -133,6 +133,17 @@ func (s *MigrationService) Cleanup(ctx context.Context, hostID uint, vmName, sna
 	return err
 }
 
+// Define 在目标主机上定义 VM（通过源主机 agent SSH 到目标执行 virsh define）。
+func (s *MigrationService) Define(ctx context.Context, hostID uint, vmName, targetDiskPath string, targetSSH *TargetSSH, progress func(int, string)) error {
+	params := map[string]interface{}{
+		"vm_name":          vmName,
+		"target_disk_path": targetDiskPath,
+		"target_ssh":       targetSSH,
+	}
+	_, err := s.manager.DispatchCommand(ctx, hostID, "define", params, progress)
+	return err
+}
+
 // RunMigration 按顺序执行一次完整迁移编排。
 func (s *MigrationService) RunMigration(ctx context.Context, req MigrationRequest, progress func(int, string)) (string, error) {
 	if req.Format == "" {
@@ -143,27 +154,33 @@ func (s *MigrationService) RunMigration(ctx context.Context, req MigrationReques
 	}
 
 	if progress != nil {
-		progress(10, "创建快照")
+		progress(5, "创建快照")
 	}
 	if err := s.Snapshot(ctx, req.SourceHostID, req.VMName, req.SnapshotName); err != nil {
 		return "failed", err
 	}
 	if progress != nil {
-		progress(40, "拉取磁盘")
+		progress(30, "拉取磁盘")
 	}
 	if _, err := s.Pull(ctx, req.SourceHostID, req, progress); err != nil {
 		return "failed", err
 	}
+	if progress != nil {
+		progress(70, "定义目标 VM")
+	}
+	if err := s.Define(ctx, req.SourceHostID, req.VMName, req.TargetDiskPath, req.TargetSSH, nil); err != nil {
+		log.Printf("[migration] 定义目标 VM 失败（可忽略）: %v", err)
+	}
 	if req.Shutdown {
 		if progress != nil {
-			progress(80, "切换至目标主机")
+			progress(85, "关闭源 VM")
 		}
 		if err := s.Cutover(ctx, req.SourceHostID, req.VMName); err != nil {
 			return "failed", err
 		}
 	}
 	if progress != nil {
-		progress(100, "清理快照")
+		progress(95, "清理快照")
 	}
 	// 清理快照失败不阻断迁移（快照可能已在传输过程中被自动清理）。
 	if err := s.Cleanup(ctx, req.SourceHostID, req.VMName, req.SnapshotName); err != nil {

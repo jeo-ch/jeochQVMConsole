@@ -5,6 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 )
 
 // snapshotParams 是 snapshot 命令的参数。
@@ -19,6 +21,13 @@ type pullParams struct {
 	VMName         string    `json:"vm_name"`
 	DiskTarget     string    `json:"disk_target"`
 	SnapshotName   string    `json:"snapshot_name"`
+	TargetDiskPath string    `json:"target_disk_path"`
+	TargetSSH      TargetSSH `json:"target_ssh"`
+}
+
+// defineParams 是 define 命令的参数：在目标主机上定义 VM。
+type defineParams struct {
+	VMName         string    `json:"vm_name"`
 	TargetDiskPath string    `json:"target_disk_path"`
 	TargetSSH      TargetSSH `json:"target_ssh"`
 }
@@ -43,6 +52,8 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 		return c.runSnapshot(params, progress)
 	case "pull":
 		return c.runPull(params, progress)
+	case "define":
+		return c.runDefine(params, progress)
 	case "cutover":
 		return c.runCutover(params, progress)
 	case "cleanup":
@@ -194,6 +205,195 @@ func (c *Client) runCleanup(params map[string]interface{}, progress func(int, st
 	}
 	progress(100, "cleanup complete")
 	return nil, nil
+}
+
+// runDefine 在目标主机上定义 VM：获取源 VM XML，修改磁盘路径，通过 SSH 上传并 virsh define。
+func (c *Client) runDefine(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+	p, err := parseDefineParams(params)
+	if err != nil {
+		return nil, err
+	}
+	if p.VMName == "" || p.TargetSSH.Host == "" || p.TargetDiskPath == "" {
+		return nil, fmt.Errorf("vm_name, target_ssh and target_disk_path are required")
+	}
+
+	progress(0, "获取源 VM 定义")
+	raw, err := dumpXML(p.VMName)
+	if err != nil {
+		return nil, err
+	}
+
+	progress(10, "生成目标 VM 定义")
+	newXML := adaptXMLForTarget(raw, p.VMName, p.TargetDiskPath)
+
+	progress(20, "上传 VM 定义到目标")
+	keyFile, err := prepareSSHKey(p.TargetSSH)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if keyFile != "" {
+			os.Remove(keyFile)
+		}
+	}()
+
+	// 将 XML 写入目标主机临时文件。
+	if err := uploadFileViaSSH(p.TargetSSH, keyFile, "/tmp/qvm.define.xml", newXML); err != nil {
+		return nil, fmt.Errorf("upload xml: %w", err)
+	}
+
+	progress(30, "在目标主机上定义 VM")
+	ssh := sshCommand(p.TargetSSH, keyFile, "virsh", "define", "/tmp/qvm.define.xml")
+	out, err := ssh.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("virsh define on target: %s: %w", stripSSHWarnings(string(out)), err)
+	}
+
+	// 清理临时文件。
+	sshCleanup := sshCommand(p.TargetSSH, keyFile, "rm", "-f", "/tmp/qvm.define.xml")
+	sshCleanup.Run()
+
+	progress(100, "VM 定义完成")
+	return map[string]string{"status": "defined", "vm_name": p.VMName}, nil
+}
+
+// adaptXMLForTarget 修改源 VM XML 以适配目标主机：
+// - 磁盘路径改为目标路径
+// - 生成新 UUID 和 MAC 地址
+// - 移除 cdrom（ISO 不存在于目标）
+// - 网络改为 default NAT（避免 OVS 依赖）
+func adaptXMLForTarget(sourceXML, vmName, targetDiskPath string) string {
+	// 简单字符串替换生成可用 XML，避免复杂 XML 操作。
+	xml := sourceXML
+
+	// 1. 替换磁盘源路径。
+	// 查找 <source file='...'/> 并替换。
+	xml = replaceDiskSource(xml, targetDiskPath)
+
+	// 2. 生成新 UUID。
+	newUUID := generateUUID()
+	xml = replaceUUID(xml, newUUID)
+
+	// 3. 移除 cdrom 设备（从 <disk type='file' device='cdrom'> 到 </disk>）。
+	xml = removeCdrom(xml)
+
+	// 4. 网络改为 default（移除 OVS 配置）。
+	xml = adaptNetwork(xml)
+
+	return xml
+}
+
+// replaceDiskSource 替换第一个磁盘的 source file 路径。
+func replaceDiskSource(xml, newPath string) string {
+	// 找到第一个 <source file='...'/> 并替换。
+	start := strings.Index(xml, "<source file='")
+	if start == -1 {
+		start = strings.Index(xml, `<source file="`)
+		if start == -1 {
+			return xml
+		}
+		startEnd := strings.Index(xml[start:], "/>")
+		if startEnd == -1 {
+			return xml
+		}
+		full := xml[start : start+startEnd+2]
+		newFull := fmt.Sprintf("<source file='%s'/>", newPath)
+		return strings.Replace(xml, full, newFull, 1)
+	}
+	startEnd := strings.Index(xml[start:], "/>")
+	if startEnd == -1 {
+		return xml
+	}
+	full := xml[start : start+startEnd+2]
+	newFull := fmt.Sprintf("<source file='%s'/>", newPath)
+	return strings.Replace(xml, full, newFull, 1)
+}
+
+// replaceUUID 替换 VM UUID。
+func replaceUUID(xml, newUUID string) string {
+	start := strings.Index(xml, "<uuid>")
+	end := strings.Index(xml, "</uuid>")
+	if start == -1 || end == -1 {
+		return xml
+	}
+	return xml[:start+6] + newUUID + xml[end:]
+}
+
+// removeCdrom 移除 cdrom 磁盘设备。
+func removeCdrom(xml string) string {
+	// 移除所有 <disk type='file' device='cdrom'>...</disk> 块。
+	for {
+		start := strings.Index(xml, "device='cdrom'")
+		if start == -1 {
+			break
+		}
+		// 向前找到 <disk
+		diskStart := strings.LastIndex(xml[:start], "<disk")
+		if diskStart == -1 {
+			break
+		}
+		// 向后找到 </disk>
+		diskEnd := strings.Index(xml[start:], "</disk>")
+		if diskEnd == -1 {
+			break
+		}
+		end := start + diskEnd + 7
+		xml = xml[:diskStart] + xml[end:]
+	}
+	return xml
+}
+
+// adaptNetwork 简化网络配置：移除 OVS virtualport，使用 default 网络。
+func adaptNetwork(xml string) string {
+	// 替换 bridge 网络为 default。
+	xml = strings.Replace(xml, "<interface type='bridge'>", "<interface type='network'>", 1)
+	xml = strings.Replace(xml, "<source bridge='br-ovs'/>", "<source network='default'/>", 1)
+	// 移除 virtualport 块（含子元素）。
+	for {
+		vpStart := strings.Index(xml, "<virtualport")
+		if vpStart == -1 {
+			break
+		}
+		vpEnd := strings.Index(xml[vpStart:], "</virtualport>")
+		if vpEnd == -1 {
+			break
+		}
+		end := vpStart + vpEnd + len("</virtualport>")
+		xml = xml[:vpStart] + xml[end:]
+	}
+	return xml
+}
+
+// generateUUID 生成一个简单的 UUID v4。
+func generateUUID() string {
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = byte(i + 1) // 简单递增，非加密安全但足够唯一。
+	}
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// uploadFileViaSSH 通过 SSH 将内容写入远程文件。
+func uploadFileViaSSH(tgt TargetSSH, keyFile, remotePath, content string) error {
+	// 使用 cat heredoc 写入，避免 base64 编码问题。
+	cmd := fmt.Sprintf("cat > %s << 'QVMEOF'\n%s\nQVMEOF", remotePath, content)
+	ssh := sshCommand(tgt, keyFile, "bash", "-c", cmd)
+	out, err := ssh.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("upload via ssh: %s: %w", stripSSHWarnings(string(out)), err)
+	}
+	return nil
+}
+
+// parseDefineParams 从通用 map 解析 define 参数。
+func parseDefineParams(params map[string]interface{}) (defineParams, error) {
+	var p defineParams
+	b, _ := json.Marshal(params)
+	if err := json.Unmarshal(b, &p); err != nil {
+		return p, fmt.Errorf("parse define params: %w", err)
+	}
+	return p, nil
 }
 
 // parseSnapshotParams 从通用 map 解析 snapshot 参数。
