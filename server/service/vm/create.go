@@ -11,65 +11,63 @@ import (
 
 	"kvm_console/config"
 	"kvm_console/service/arch"
-	"kvm_console/service/vm/memory"
 	"kvm_console/service/vm_xml"
 	"kvm_console/utils"
 )
 
 // CreateVMParams 普通创建虚拟机参数（不通过模板）
 type CreateVMParams struct {
-	Owner                string                         `json:"-"`
-	Name                 string                         `json:"name"`
-	Remark               string                         `json:"remark,omitempty"`
-	VCPU                 int                            `json:"vcpu"`
-	MaxVCPU              int                            `json:"max_vcpu,omitempty"` // CPU 热添加上限，0 或 <= vcpu 表示不启用热添加
-	RAM                  int                            `json:"ram"`
-	DiskSize             int                            `json:"disk_size"`
-	DiskFormat           string                         `json:"disk_format,omitempty"`
-	DiskBus              string                         `json:"disk_bus,omitempty"` // 磁盘总线类型: virtio/scsi/sata/ide
-	OSVariant            string                         `json:"os_variant,omitempty"`
-	ISOPath              string                         `json:"iso_path,omitempty"`
-	ISOPaths             []string                       `json:"iso_paths,omitempty"`
-	FloppyImage          string                         `json:"floppy_image,omitempty"`
-	Network              string                         `json:"network,omitempty"`
-	NicModel             string                         `json:"nic_model,omitempty"` // 网卡模型: virtio/e1000e/rtl8139
-	Autostart            bool                           `json:"autostart,omitempty"`
-	Freeze               bool                           `json:"freeze,omitempty"` // 启动时冻结 CPU
-	APIC                 *bool                          `json:"apic,omitempty"`   // APIC 开关，默认启用
-	PAE                  *bool                          `json:"pae,omitempty"`    // PAE 开关，默认启用
-	RTCOffset            string                         `json:"rtc_offset,omitempty"`
-	RTCStartDate         string                         `json:"rtc_startdate,omitempty"`
-	GuestAgent           *vm_xml.VMGuestAgentConfig     `json:"guest_agent,omitempty"`
-	SMBIOS1              *vm_xml.VMSMBIOS1Config        `json:"smbios1,omitempty"`
-	OSType               string                         `json:"os_type,omitempty"`
-	MachineType          string                         `json:"machine_type,omitempty"`
-	BootType             string                         `json:"boot_type,omitempty"`
-	Watchdog             string                         `json:"watchdog,omitempty"`
-	BootOrder            []string                       `json:"boot_order,omitempty"`
-	VideoModel           string                         `json:"video_model,omitempty"`   // 视频模型: virtio/vga/vmvga/cirrus/ramfb/none
-	SpiceEnabled         *bool                          `json:"spice_enabled,omitempty"` // 是否启用 SPICE 显示协议（nil=回退全局默认）
-	CPUTopologyMode      string                         `json:"cpu_topology_mode,omitempty"`
-	CPULimitPercent      int                            `json:"cpu_limit_percent,omitempty"`
-	CPUAffinity          string                         `json:"cpu_affinity,omitempty"` // CPU 亲和性，如 "0,2,4"，空字符串表示不设置
-	VirtType             string                         `json:"virt_type,omitempty"`    // 虚拟化方案: kvm/qemu，默认 kvm
-	Arch                 string                         `json:"arch,omitempty"`         // 目标架构: x86_64/aarch64/riscv64
-	ExtraDisks           []ExtraDiskParam               `json:"extra_disks,omitempty"`
-	MemoryDynamic        *memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`
-	SystemDiskIOPS       *DiskIOPSTune                  `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
-	SwitchID             uint                           `json:"switch_id,omitempty"`
-	SecurityGroupID      uint                           `json:"security_group_id,omitempty"`
-	AllowedIPv4Addresses string                         `json:"allowed_ipv4_addresses,omitempty"`
-	AllowedIPv6Addresses string                         `json:"allowed_ipv6_addresses,omitempty"`
-	ExtraNics            []AddVMInterfaceRequest        `json:"extra_nics,omitempty"`
-	StoragePoolID        string                         `json:"storage_pool_id,omitempty"`
-	HostDevices          []HostDeviceParam              `json:"host_devices,omitempty"` // 硬件直通设备
-	IsAdmin              bool                           `json:"is_admin,omitempty"`
-	PCIERootPorts        int                            `json:"pcie_root_ports,omitempty"` // q35 机型预留 pcie-root-port 数量，0 表示使用默认 6
-	FirmwareCompat       *bool                          `json:"firmware_compat,omitempty"` // UEFI 固件兼容模式（ARM 专用，使用旧版 EDK2）
-	DirectBoot           *vm_xml.DirectBootConfig       `json:"direct_boot,omitempty"`     // 直接内核引导配置
-	KVMHidden            *bool                          `json:"kvm_hidden,omitempty"`      // 隐藏 KVM 标志（<kvm><hidden state='on'/></kvm>）
-	VendorID             string                         `json:"vendor_id,omitempty"`       // Hyper-V vendor_id 伪装（空表示不设置）
-	NestedVirt           *bool                          `json:"nested_virt,omitempty"`     // 嵌套虚拟化开关，nil/true 默认启用，false 关闭
+	Owner                string                     `json:"-"`
+	Name                 string                     `json:"name"`
+	Remark               string                     `json:"remark,omitempty"`
+	VCPU                 int                        `json:"vcpu"`
+	MaxVCPU              int                        `json:"max_vcpu,omitempty"` // CPU 热添加上限，0 或 <= vcpu 表示不启用热添加
+	RAM                  int                        `json:"ram"`
+	DiskSize             int                        `json:"disk_size"`
+	DiskFormat           string                     `json:"disk_format,omitempty"`
+	DiskBus              string                     `json:"disk_bus,omitempty"` // 磁盘总线类型: virtio/scsi/sata/ide
+	OSVariant            string                     `json:"os_variant,omitempty"`
+	ISOPath              string                     `json:"iso_path,omitempty"`
+	ISOPaths             []string                   `json:"iso_paths,omitempty"`
+	FloppyImage          string                     `json:"floppy_image,omitempty"`
+	Network              string                     `json:"network,omitempty"`
+	NicModel             string                     `json:"nic_model,omitempty"` // 网卡模型: virtio/e1000e/rtl8139
+	Autostart            bool                       `json:"autostart,omitempty"`
+	Freeze               bool                       `json:"freeze,omitempty"` // 启动时冻结 CPU
+	APIC                 *bool                      `json:"apic,omitempty"`   // APIC 开关，默认启用
+	PAE                  *bool                      `json:"pae,omitempty"`    // PAE 开关，默认启用
+	RTCOffset            string                     `json:"rtc_offset,omitempty"`
+	RTCStartDate         string                     `json:"rtc_startdate,omitempty"`
+	GuestAgent           *vm_xml.VMGuestAgentConfig `json:"guest_agent,omitempty"`
+	SMBIOS1              *vm_xml.VMSMBIOS1Config    `json:"smbios1,omitempty"`
+	OSType               string                     `json:"os_type,omitempty"`
+	MachineType          string                     `json:"machine_type,omitempty"`
+	BootType             string                     `json:"boot_type,omitempty"`
+	Watchdog             string                     `json:"watchdog,omitempty"`
+	BootOrder            []string                   `json:"boot_order,omitempty"`
+	VideoModel           string                     `json:"video_model,omitempty"`   // 视频模型: virtio/vga/vmvga/cirrus/ramfb/none
+	SpiceEnabled         *bool                      `json:"spice_enabled,omitempty"` // 是否启用 SPICE 显示协议（nil=回退全局默认）
+	CPUTopologyMode      string                     `json:"cpu_topology_mode,omitempty"`
+	CPULimitPercent      int                        `json:"cpu_limit_percent,omitempty"`
+	CPUAffinity          string                     `json:"cpu_affinity,omitempty"` // CPU 亲和性，如 "0,2,4"，空字符串表示不设置
+	VirtType             string                     `json:"virt_type,omitempty"`    // 虚拟化方案: kvm/qemu，默认 kvm
+	Arch                 string                     `json:"arch,omitempty"`         // 目标架构: x86_64/aarch64/riscv64
+	ExtraDisks           []ExtraDiskParam           `json:"extra_disks,omitempty"`
+	SystemDiskIOPS       *DiskIOPSTune              `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
+	SwitchID             uint                       `json:"switch_id,omitempty"`
+	SecurityGroupID      uint                       `json:"security_group_id,omitempty"`
+	AllowedIPv4Addresses string                     `json:"allowed_ipv4_addresses,omitempty"`
+	AllowedIPv6Addresses string                     `json:"allowed_ipv6_addresses,omitempty"`
+	ExtraNics            []AddVMInterfaceRequest    `json:"extra_nics,omitempty"`
+	StoragePoolID        string                     `json:"storage_pool_id,omitempty"`
+	HostDevices          []HostDeviceParam          `json:"host_devices,omitempty"` // 硬件直通设备
+	IsAdmin              bool                       `json:"is_admin,omitempty"`
+	PCIERootPorts        int                        `json:"pcie_root_ports,omitempty"` // q35 机型预留 pcie-root-port 数量，0 表示使用默认 6
+	FirmwareCompat       *bool                      `json:"firmware_compat,omitempty"` // UEFI 固件兼容模式（ARM 专用，使用旧版 EDK2）
+	DirectBoot           *vm_xml.DirectBootConfig   `json:"direct_boot,omitempty"`     // 直接内核引导配置
+	KVMHidden            *bool                      `json:"kvm_hidden,omitempty"`      // 隐藏 KVM 标志（<kvm><hidden state='on'/></kvm>）
+	VendorID             string                     `json:"vendor_id,omitempty"`       // Hyper-V vendor_id 伪装（空表示不设置）
+	NestedVirt           *bool                      `json:"nested_virt,omitempty"`     // 嵌套虚拟化开关，nil/true 默认启用，false 关闭
 }
 
 // ExtraDiskParam is now defined in storage/disk package; alias in disk_compat.go.
@@ -81,33 +79,9 @@ type OSVariantInfo struct {
 	Category string `json:"category"` // 分类: Linux/Windows/Other
 }
 
-// validOSVariantToken 校验系统变体 ID 是否为安全 token（仅字母数字与短横线/点，避免注入）。
-func validOSVariantToken(id string) bool {
-	if id == "" {
-		return false
-	}
-	for _, r := range id {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-// ListOSVariants 获取可用的系统变体列表。
-// 优先用 libosinfo 标准命令 osinfo-query os（旧版 virt-install 如麒麟 2.2.1 不支持 --osinfo list，
-// 只支持 --osinfo list 的 virt-install 3.0+ 会 exit 2），失败再回退 virt-install --osinfo list。
+// ListOSVariants 获取可用的系统变体列表
 func ListOSVariants() ([]OSVariantInfo, error) {
-	if variants, err := parseOSVariantsFromCommand("osinfo-query os 2>/dev/null"); err == nil && len(variants) > 0 {
-		return variants, nil
-	}
-	return parseOSVariantsFromCommand("virt-install --osinfo list 2>/dev/null")
-}
-
-// parseOSVariantsFromCommand 执行命令并解析系统变体列表，兼容 osinfo-query 表头与 virt-install 别名两种格式。
-func parseOSVariantsFromCommand(cmd string) ([]OSVariantInfo, error) {
-	result := utils.ExecShell(cmd)
+	result := utils.ExecShell("virt-install --osinfo list 2>/dev/null")
 	if result.Error != nil {
 		return nil, fmt.Errorf("获取系统变体列表失败: %w", result.Error)
 	}
@@ -120,10 +94,6 @@ func parseOSVariantsFromCommand(cmd string) ([]OSVariantInfo, error) {
 		if line == "" {
 			continue
 		}
-		// osinfo-query os 首行表头形如 "Short-ID,Name,Version,..."，须跳过
-		if strings.Contains(line, "Short-ID") {
-			continue
-		}
 
 		// 可能有别名，如 "ubuntu24.04, ubuntunoble"
 		parts := strings.SplitN(line, ",", 2)
@@ -133,33 +103,38 @@ func parseOSVariantsFromCommand(cmd string) ([]OSVariantInfo, error) {
 			name = fmt.Sprintf("%s (%s)", id, strings.TrimSpace(parts[1]))
 		}
 
+		// 分类
+		category := "Other"
+		idLower := strings.ToLower(id)
+		if strings.HasPrefix(idLower, "win") {
+			category = "Windows"
+		} else if strings.HasPrefix(idLower, "ubuntu") ||
+			strings.HasPrefix(idLower, "debian") ||
+			strings.HasPrefix(idLower, "centos") ||
+			strings.HasPrefix(idLower, "fedora") ||
+			strings.HasPrefix(idLower, "rhel") ||
+			strings.HasPrefix(idLower, "alma") ||
+			strings.HasPrefix(idLower, "rocky") ||
+			strings.HasPrefix(idLower, "opensuse") ||
+			strings.HasPrefix(idLower, "sles") ||
+			strings.HasPrefix(idLower, "archlinux") ||
+			strings.HasPrefix(idLower, "gentoo") ||
+			strings.HasPrefix(idLower, "alpine") ||
+			strings.HasPrefix(idLower, "freebsd") ||
+			strings.HasPrefix(idLower, "openbsd") ||
+			strings.HasPrefix(idLower, "linux") ||
+			strings.HasPrefix(idLower, "generic") {
+			category = "Linux"
+		}
+
 		variants = append(variants, OSVariantInfo{
 			ID:       id,
 			Name:     name,
-			Category: categorizeOSVariant(id),
+			Category: category,
 		})
 	}
 
 	return variants, nil
-}
-
-// categorizeOSVariant 根据变体 ID 判断系统分类（Linux/Windows/Other）。
-func categorizeOSVariant(id string) string {
-	category := "Other"
-	idLower := strings.ToLower(id)
-	if strings.HasPrefix(idLower, "win") {
-		return "Windows"
-	}
-	for _, p := range []string{
-		"ubuntu", "debian", "centos", "fedora", "rhel", "alma", "rocky",
-		"opensuse", "sles", "archlinux", "gentoo", "alpine", "freebsd",
-		"openbsd", "linux", "generic",
-	} {
-		if strings.HasPrefix(idLower, p) {
-			return "Linux"
-		}
-	}
-	return category
 }
 
 // ListISOs 列出可用的 ISO 镜像（读取系统设置中的全局 ISO 目录）
@@ -260,34 +235,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 		params.BootOrder = []string{"hd"}
 	}
 
-	// 对拼进 shell 的参数做白名单校验，防命令注入。字段全部来自创建/克隆请求，
-	// 管理员与普通用户都可达，故在此统一校验（服务层兜底，前端下拉框已限值）。
-	switch params.VirtType {
-	case "kvm", "qemu", "hvf", "xen":
-	default:
-		return "", fmt.Errorf("不支持的虚拟化方案: %s", params.VirtType)
-	}
-	if !slices.Contains(arch.SupportedArchs(), params.Arch) {
-		return "", fmt.Errorf("不支持的架构: %s", params.Arch)
-	}
-	if params.OSVariant != "" && !validOSVariantToken(params.OSVariant) {
-		return "", fmt.Errorf("无效的系统变体: %s", params.OSVariant)
-	}
-	switch params.DiskFormat {
-	case "qcow2", "raw":
-	default:
-		return "", fmt.Errorf("不支持的磁盘格式: %s", params.DiskFormat)
-	}
-	switch params.Watchdog {
-	case "", "none", "i6300esb", "ib700", "diag288":
-	default:
-		return "", fmt.Errorf("不支持的看门狗类型: %s", params.Watchdog)
-	}
-	// 磁盘总线与网卡模型同样进入 shell/XML，做白名单约束
-	if params.DiskBus != "" && !slices.Contains([]string{"virtio", "sata", "scsi", "ide", "usb"}, params.DiskBus) {
-		return "", fmt.Errorf("不支持的磁盘总线类型: %s", params.DiskBus)
-	}
-
 	if !params.IsAdmin {
 		params.CPULimitPercent = D.VMCPULimitUnlimited
 	}
@@ -334,16 +281,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	}
 
 	ramMB := params.RAM * 1024
-
-	// 动态内存配置：计算启动内存、生成 metadata（虚拟化层，不落数据库）
-	var memoryMeta *memory.VMMemoryMetadata
-	if params.MemoryDynamic != nil {
-		memoryMeta, ramMB, _, err = memory.BuildVMMemoryMetadataForCreate(params.RAM, params.MemoryDynamic)
-		if err != nil {
-			_ = os.Remove(diskPath)
-			return "", err
-		}
-	}
 
 	// 启动前检查宿主机可用内存，预留系统开销
 	if err := CheckHostMemory(ramMB); err != nil {
@@ -479,15 +416,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	additionalPCIEDevices := len(params.ExtraNics) + len(params.ExtraDisks) + len(params.HostDevices)
 	pciePortCount := vm_xml.ResolveCreatePCIERootPortCount(vmXML, params.PCIERootPorts, additionalPCIEDevices)
 	vmXML = InjectPCIERootPorts(vmXML, pciePortCount)
-
-	// 动态内存 metadata 注入 domain XML
-	if memoryMeta != nil {
-		vmXML, err = memory.ApplyMemoryMetadataToDomainXML(vmXML, memoryMeta, enableFPR)
-		if err != nil {
-			_ = os.Remove(diskPath)
-			return "", err
-		}
-	}
 
 	vmXML, err = D.ApplyRTCConfigToDomainXML(vmXML, params.RTCOffset, params.RTCStartDate, params.OSType)
 	if err != nil {
@@ -689,12 +617,6 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 		_ = os.Remove(diskPath)
 		return "", fmt.Errorf("定义虚拟机失败: %s", defineResult.Stderr)
 	}
-	if memoryMeta != nil {
-		if err := memory.WriteVMMemoryMetadata(params.Name, memoryMeta); err != nil {
-			_ = os.Remove(diskPath)
-			return "", err
-		}
-	}
 	if err := SetVMRemark(params.Name, params.Remark); err != nil {
 		_ = os.Remove(diskPath)
 		return "", err
@@ -702,6 +624,39 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 	if err := SetVMFreeze(params.Name, params.Freeze); err != nil {
 		_ = os.Remove(diskPath)
 		return "", err
+	}
+	// 额外磁盘：在启动前冷添加，避免占用 PCIe 热插槽
+	if len(params.ExtraDisks) > 0 {
+		progressFn(52, "挂载额外磁盘...")
+		var extraDiskFailures []string
+		for i, ed := range params.ExtraDisks {
+			format := ed.Format
+			if format == "" {
+				format = "qcow2"
+			}
+			bus := ed.Bus
+			if bus == "" {
+				bus = diskBus // 使用系统盘的总线类型
+			}
+			diskDir := cloneDir
+			if strings.TrimSpace(ed.StoragePoolID) != "" {
+				resolvedDir, _, resolveErr := D.ResolveVMStorageDir(ed.StoragePoolID, params.IsAdmin)
+				if resolveErr != nil {
+					extraDiskFailures = append(extraDiskFailures, fmt.Sprintf("磁盘%d: 解析存储位置失败: %s", i+1, resolveErr.Error()))
+					progressFn(52, fmt.Sprintf("解析额外磁盘 %d 存储位置失败: %s", i+1, resolveErr.Error()))
+					continue
+				}
+				diskDir = resolvedDir
+			}
+			_, err := D.AddDiskWithBusInDir(params.Name, ed.Size, format, bus, diskDir)
+			if err != nil {
+				extraDiskFailures = append(extraDiskFailures, fmt.Sprintf("磁盘%d: 挂载失败: %s", i+1, err.Error()))
+				progressFn(52, fmt.Sprintf("挂载额外磁盘 %d 失败: %s", i+1, err.Error()))
+			}
+		}
+		if len(extraDiskFailures) > 0 {
+			logger.App.Warn("虚拟机额外磁盘部分失败", "vm", params.Name, "failures", strings.Join(extraDiskFailures, "; "))
+		}
 	}
 	if D.PrepareVMPortSecurityBinding != nil {
 		if err := D.PrepareVMPortSecurityBinding(params.Owner, params.Name, params.SwitchID, params.SecurityGroupID, params.AllowedIPv4Addresses, params.AllowedIPv6Addresses); err != nil {
@@ -769,26 +724,7 @@ func CreateVM(params *CreateVMParams, progressFn func(int, string)) (string, err
 
 	progressFn(100, "虚拟机创建完成")
 
-	// 提交额外磁盘创建任务（异步）
-	var extraDiskTaskID string
-	if len(params.ExtraDisks) > 0 {
-		taskID, err := CreateVMExtraDisksForHandler(params.Name, params.ExtraDisks, cloneDir, params.IsAdmin, diskBus, params.Owner)
-		if err != nil {
-			logger.App.Warn("提交额外磁盘创建任务失败", "vm", params.Name, "error", err)
-		} else if taskID != "" {
-			extraDiskTaskID = taskID
-			progressFn(100, fmt.Sprintf("额外磁盘创建任务已提交 (ID: %s)", taskID))
-		}
-	}
-
-	// 返回结果包含额外磁盘任务 ID
-	resultMap := map[string]string{
-		"disk_path":           diskPath,
-		"message":             "虚拟机创建成功",
-		"extra_disk_task_id":  extraDiskTaskID,
-	}
-	resultJSON, _ := json.Marshal(resultMap)
-	return string(resultJSON), nil
+	return diskPath, nil
 }
 
 // ParseCreateVMParams 从 JSON 解析普通创建参数

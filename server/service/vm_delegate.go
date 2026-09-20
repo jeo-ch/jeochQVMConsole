@@ -531,6 +531,14 @@ func ListPCIDevicesForPassthrough() ([]PCIDevice, error) {
 	return vmpkg.ListPCIDevicesForPassthrough()
 }
 
+func WarmupPassthroughDeviceCache() {
+	vmpkg.WarmupPassthroughDeviceCache()
+}
+
+func InvalidatePassthroughDeviceCache() {
+	vmpkg.InvalidatePassthroughDeviceCache()
+}
+
 func GetVMPCIDevices(vmName string) ([]PCIDevice, error) {
 	return vmpkg.GetVMPCIDevices(vmName)
 }
