@@ -144,6 +144,26 @@ func (s *MigrationService) Define(ctx context.Context, hostID uint, vmName, targ
 	return err
 }
 
+// ResolveStorage 查询目标主机的默认 VM 存储目录。
+func (s *MigrationService) ResolveStorage(ctx context.Context, hostID uint, targetSSH *TargetSSH) (string, error) {
+	params := map[string]interface{}{
+		"target_ssh": targetSSH,
+	}
+	res, err := s.manager.DispatchCommand(ctx, hostID, "resolve-storage", params, nil)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("[migration] resolve-storage raw response: data=%s", string(res.Data))
+	var out struct {
+		VMDir string `json:"vm_dir"`
+	}
+	if err := json.Unmarshal(res.Data, &out); err != nil {
+		return "", err
+	}
+	log.Printf("[migration] resolve-storage parsed: vm_dir=%q", out.VMDir)
+	return out.VMDir, nil
+}
+
 // RunMigration 按顺序执行一次完整迁移编排。
 func (s *MigrationService) RunMigration(ctx context.Context, req MigrationRequest, progress func(int, string)) (string, error) {
 	if req.Format == "" {
@@ -152,6 +172,25 @@ func (s *MigrationService) RunMigration(ctx context.Context, req MigrationReques
 	if req.SnapshotName == "" {
 		req.SnapshotName = "qvmconsole_migration_" + time.Now().Format("20060102150405")
 	}
+
+	// 解析目标存储路径：优先使用请求指定的路径，否则动态查询目标主机。
+	targetDiskPath := req.TargetDiskPath
+	if targetDiskPath == "" && req.TargetSSH != nil {
+		if progress != nil {
+			progress(2, "查询目标存储配置")
+		}
+		vmDir, err := s.ResolveStorage(ctx, req.SourceHostID, req.TargetSSH)
+		if err != nil {
+			log.Printf("[migration] 查询目标存储失败，使用默认路径: %v", err)
+			vmDir = "/var/lib/libvirt/images"
+		}
+		targetDiskPath = vmDir + "/" + req.VMName + ".qcow2"
+		log.Printf("[migration] resolved target storage: vm_dir=%s target_path=%s", vmDir, targetDiskPath)
+	}
+	if targetDiskPath == "" {
+		targetDiskPath = "/var/lib/libvirt/images/" + req.VMName + ".qcow2"
+	}
+	req.TargetDiskPath = targetDiskPath
 
 	if progress != nil {
 		progress(5, "创建快照")

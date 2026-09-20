@@ -32,6 +32,11 @@ type defineParams struct {
 	TargetSSH      TargetSSH `json:"target_ssh"`
 }
 
+// resolveStorageParams 是 resolve-storage 命令的参数：查询目标主机的存储目录。
+type resolveStorageParams struct {
+	TargetSSH TargetSSH `json:"target_ssh"`
+}
+
 // cutoverParams 是 cutover 命令的参数。
 type cutoverParams struct {
 	VMName string `json:"vm_name"`
@@ -54,6 +59,8 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 		return c.runPull(params, progress)
 	case "define":
 		return c.runDefine(params, progress)
+	case "resolve-storage":
+		return c.runResolveStorage(params, progress)
 	case "cutover":
 		return c.runCutover(params, progress)
 	case "cleanup":
@@ -257,6 +264,104 @@ func (c *Client) runDefine(params map[string]interface{}, progress func(int, str
 	return map[string]string{"status": "defined", "vm_name": p.VMName}, nil
 }
 
+// runResolveStorage 查询目标主机的默认 VM 存储目录。
+// 通过 SSH 在目标主机执行命令获取存储池信息。
+func (c *Client) runResolveStorage(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+	p, err := parseResolveStorageParams(params)
+	if err != nil {
+		return nil, err
+	}
+	if p.TargetSSH.Host == "" {
+		return nil, fmt.Errorf("target_ssh is required")
+	}
+
+	progress(0, "查询目标存储配置")
+
+	keyFile, err := prepareSSHKey(p.TargetSSH)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if keyFile != "" {
+			os.Remove(keyFile)
+		}
+	}()
+
+	// 策略1: 读取 QVMConsole 配置获取 KVM_CLONE_DIR。
+	// 通过 grep 直接在远程执行，避免 bash -c 引号问题。
+	ssh := sshCommand(p.TargetSSH, keyFile, "grep", "KVM_CLONE_DIR", "/opt/project/QVMConsole/.env")
+	out, err := ssh.Output()
+	cleaned := strings.TrimSpace(stripSSHWarnings(string(out)))
+	// cut -d= -f2: 提取 = 后面的值。
+	cloneDir := ""
+	if err == nil && cleaned != "" {
+		parts := strings.SplitN(cleaned, "=", 2)
+		if len(parts) == 2 {
+			cloneDir = strings.TrimSpace(parts[1])
+		}
+	}
+	if cloneDir != "" {
+		log.Printf("[resolve-storage] strategy1 env: vm_dir=%q", cloneDir)
+		progress(100, "storage resolved")
+		return map[string]string{"vm_dir": cloneDir}, nil
+	}
+
+	// 策略2: 查询 virsh 存储池（vm-disks 池的 target/path）。
+	// 先在远程执行 virsh 获取 XML，再本地提取路径。
+	ssh2 := sshCommand(p.TargetSSH, keyFile, "virsh", "pool-dumpxml", "vm-disks")
+	out2, err2 := ssh2.Output()
+	cleaned2 := strings.TrimSpace(stripSSHWarnings(string(out2)))
+	poolPath := ""
+	if err2 == nil && cleaned2 != "" {
+		// 从 XML 中提取 <path>xxx</path>。
+		start := strings.Index(cleaned2, "<path>")
+		end := strings.Index(cleaned2, "</path>")
+		if start != -1 && end != -1 {
+			poolPath = strings.TrimSpace(cleaned2[start+6 : end])
+		}
+	}
+	if poolPath != "" {
+		// 检查池路径下是否有 vm-disks 子目录。
+		ssh3 := sshCommand(p.TargetSSH, keyFile, "ls", "-d", poolPath+"/vm-disks")
+		out3, _ := ssh3.Output()
+		vmDir := strings.TrimSpace(stripSSHWarnings(string(out3)))
+		if vmDir != "" {
+			log.Printf("[resolve-storage] strategy2 virsh: vm_dir=%q", vmDir)
+			progress(100, "storage resolved")
+			return map[string]string{"vm_dir": vmDir}, nil
+		}
+		// 没有 vm-disks 子目录，直接使用池路径。
+		log.Printf("[resolve-storage] strategy2 virsh: vm_dir=%q (pool path)", poolPath)
+		progress(100, "storage resolved")
+		return map[string]string{"vm_dir": poolPath}, nil
+	}
+
+	// 策略3: 检查 /var/lib/kvm-storage/*/vm-disks。
+	ssh4 := sshCommand(p.TargetSSH, keyFile, "ls", "-d", "/var/lib/kvm-storage/*/vm-disks")
+	out4, err4 := ssh4.Output()
+	vmDir4 := strings.TrimSpace(stripSSHWarnings(string(out4)))
+	if err4 == nil && vmDir4 != "" {
+		log.Printf("[resolve-storage] strategy3 kvm-storage: vm_dir=%q", vmDir4)
+		progress(100, "storage resolved")
+		return map[string]string{"vm_dir": vmDir4}, nil
+	}
+
+	// 策略4: 检查 /vm-disks。
+	ssh5 := sshCommand(p.TargetSSH, keyFile, "ls", "-d", "/vm-disks")
+	out5, err5 := ssh5.Output()
+	vmDir5 := strings.TrimSpace(stripSSHWarnings(string(out5)))
+	if err5 == nil && vmDir5 != "" {
+		log.Printf("[resolve-storage] strategy4 /vm-disks: vm_dir=%q", vmDir5)
+		progress(100, "storage resolved")
+		return map[string]string{"vm_dir": vmDir5}, nil
+	}
+
+	// 策略5: 回退到默认路径。
+	log.Printf("[resolve-storage] strategy5 default: vm_dir=/var/lib/libvirt/images")
+	progress(100, "storage resolved (default)")
+	return map[string]string{"vm_dir": "/var/lib/libvirt/images"}, nil
+}
+
 // adaptXMLForTarget 修改源 VM XML 以适配目标主机：
 // - 磁盘路径改为目标路径
 // - 生成新 UUID 和 MAC 地址
@@ -392,6 +497,16 @@ func parseDefineParams(params map[string]interface{}) (defineParams, error) {
 	b, _ := json.Marshal(params)
 	if err := json.Unmarshal(b, &p); err != nil {
 		return p, fmt.Errorf("parse define params: %w", err)
+	}
+	return p, nil
+}
+
+// parseResolveStorageParams 从通用 map 解析 resolve-storage 参数。
+func parseResolveStorageParams(params map[string]interface{}) (resolveStorageParams, error) {
+	var p resolveStorageParams
+	b, _ := json.Marshal(params)
+	if err := json.Unmarshal(b, &p); err != nil {
+		return p, fmt.Errorf("parse resolve-storage params: %w", err)
 	}
 	return p, nil
 }

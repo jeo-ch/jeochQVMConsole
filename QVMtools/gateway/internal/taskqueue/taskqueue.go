@@ -78,12 +78,32 @@ func SubmitWithStruct(taskType string, params interface{}, createdBy string) (*m
 }
 
 func worker(id int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[taskqueue] worker panic: worker=%d recover=%v", id, r)
+		}
+	}()
 	for taskID := range taskChan {
 		processTask(id, taskID)
 	}
 }
 
 func processTask(workerID int, taskID uint) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[taskqueue] PANIC: id=%d recover=%v", taskID, r)
+			taskStoreMu.Lock()
+			if task, ok := taskStore[taskID]; ok {
+				task.Status = "failed"
+				task.Message = fmt.Sprintf("panic: %v", r)
+				task.UpdatedAt = time.Now()
+			}
+			taskStoreMu.Unlock()
+		}
+	}()
+
+	log.Printf("[taskqueue] processTask start: worker=%d id=%d", workerID, taskID)
+
 	taskStoreMu.RLock()
 	task, ok := taskStore[taskID]
 	taskStoreMu.RUnlock()
@@ -122,6 +142,7 @@ func processTask(workerID int, taskID uint) {
 	if err != nil {
 		task.Status = "failed"
 		task.Message = err.Error()
+		log.Printf("[taskqueue] 任务失败: id=%d err=%v", taskID, err)
 	} else {
 		task.Status = "done"
 		task.Result = result

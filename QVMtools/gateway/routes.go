@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"kvm_console_gateway/internal/model"
@@ -24,11 +26,21 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 
 // RegisterTaskHandler 注册迁移任务处理器到任务队列。
 func RegisterTaskHandler(mig *MigrationService) {
-	taskqueue.RegisterHandler("gateway_migration", func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+	taskqueue.RegisterHandler("gateway_migration", func(ctx context.Context, task *model.Task, progress func(int, string)) (result string, retErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[migration] PANIC: %v", r)
+				result = "failed"
+				retErr = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		log.Printf("[migration] handler invoked: task_id=%d params_len=%d", task.ID, len(task.Params))
 		var req MigrationRequest
 		if err := json.Unmarshal([]byte(task.Params), &req); err != nil {
+			log.Printf("[migration] JSON parse error: %v", err)
 			return "failed", err
 		}
+		log.Printf("[migration] starting migration: vm=%s source=%d target=%d", req.VMName, req.SourceHostID, req.TargetHostID)
 		return mig.RunMigration(ctx, req, progress)
 	})
 }
