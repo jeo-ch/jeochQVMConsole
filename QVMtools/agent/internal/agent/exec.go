@@ -42,6 +42,8 @@ var sshWarningPatterns = []string{
 	"Warning: the ECDSA host key",
 	"Warning: adding to no known hosts",
 	"Pseudo-terminal will not be allocated because stdin is not a terminal",
+	"Authorized users only",
+	"All activities may be monitored and reported",
 }
 
 // stripSSHWarnings 从命令输出中移除常见的 SSH 告警行，避免污染结构化数据。

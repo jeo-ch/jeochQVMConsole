@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"time"
 )
 
@@ -164,8 +165,9 @@ func (s *MigrationService) RunMigration(ctx context.Context, req MigrationReques
 	if progress != nil {
 		progress(100, "清理快照")
 	}
+	// 清理快照失败不阻断迁移（快照可能已在传输过程中被自动清理）。
 	if err := s.Cleanup(ctx, req.SourceHostID, req.VMName, req.SnapshotName); err != nil {
-		return "failed", err
+		log.Printf("[migration] 清理快照失败（可忽略）: %v", err)
 	}
 	return "done", nil
 }

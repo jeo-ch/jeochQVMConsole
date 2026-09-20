@@ -159,7 +159,9 @@ func sha256sumRemote(tgt TargetSSH, keyFile, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("sha256sum remote %s: %w", path, err)
 	}
-	return parseSha256(string(out)), nil
+	// 去除 SSH 警告信息，只保留校验和。
+	cleaned := stripSSHWarnings(string(out))
+	return parseSha256(cleaned), nil
 }
 
 // parseSha256 从 sha256sum 输出提取校验和（首 token）。

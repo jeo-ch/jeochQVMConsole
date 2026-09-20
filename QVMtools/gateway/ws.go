@@ -133,6 +133,7 @@ func (m *Manager) HandleConnection(conn *websocket.Conn) {
 }
 
 // handshake 校验令牌并建立连接与源主机的绑定。
+// 已消费的令牌允许重连（Validate），未消费的令牌首次注册（Consume）。
 func handshake(c *Connection, reg *WSMessage, m *Manager) error {
 	var data struct {
 		Token       string `json:"token"`
@@ -142,7 +143,13 @@ func handshake(c *Connection, reg *WSMessage, m *Manager) error {
 	if len(reg.Data) > 0 && json.Unmarshal(reg.Data, &data) != nil {
 		return sendRegisterResult(c, false, "invalid payload")
 	}
+
+	// 先尝试 Consume（首次注册），若已消费则 Validate（重连）。
 	tok, err := m.tokens.Consume(data.Token)
+	if err == ErrTokenConsumed {
+		// token 已被消费过，说明是重连，用 Validate 验证身份。
+		tok, err = m.tokens.Validate(data.Token)
+	}
 	if err != nil {
 		return sendRegisterResult(c, false, err.Error())
 	}

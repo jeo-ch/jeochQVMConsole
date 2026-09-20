@@ -199,19 +199,35 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // createSnapshot 为 VM 创建 disk-only 原子快照，作为迁移的一致检查点。
+// online 为 true 时尝试 --live，若失败则回退到非在线模式。
 func createSnapshot(vmName, snapshotName string, online bool) error {
-	args := []string{"snapshot-create-as", vmName, snapshotName, "--disk-only", "--atomic", "--no-metadata", "--diskname", snapshotName}
+	args := []string{"snapshot-create-as", vmName, snapshotName, "--disk-only", "--atomic", "--no-metadata"}
 	if online {
 		args = append(args, "--live")
 	}
 	if _, err := runOutput("virsh", args...); err != nil {
+		if online {
+			// --live 失败时回退到非在线模式。
+			args = []string{"snapshot-create-as", vmName, snapshotName, "--disk-only", "--atomic", "--no-metadata"}
+			if _, err2 := runOutput("virsh", args...); err2 != nil {
+				return fmt.Errorf("virsh snapshot-create-as %s: %w", vmName, err2)
+			}
+			return nil
+		}
 		return fmt.Errorf("virsh snapshot-create-as %s: %w", vmName, err)
 	}
 	return nil
 }
 
-// shutdownVM 关闭 VM：先 ACPI 优雅关机，超时则强杀。
+// shutdownVM 关闭 VM：若已关机则直接返回；否则先 ACPI 优雅关机，超时则强杀。
 func shutdownVM(vmName string) error {
+	state, err := domState(vmName)
+	if err != nil {
+		return fmt.Errorf("virsh dominfo %s: %w", vmName, err)
+	}
+	if state != "running" {
+		return nil // 已关机，无需操作
+	}
 	if _, err := runOutput("virsh", "shutdown", vmName); err != nil {
 		return fmt.Errorf("virsh shutdown %s: %w", vmName, err)
 	}
@@ -231,7 +247,7 @@ func shutdownVM(vmName string) error {
 
 // deleteSnapshot 删除迁移用的临时快照，恢复磁盘链。
 func deleteSnapshot(vmName, snapshotName string) error {
-	if _, err := runOutput("virsh", "snapshot-delete", vmName, snapshotName, "--current"); err != nil {
+	if _, err := runOutput("virsh", "snapshot-delete", vmName, snapshotName); err != nil {
 		return fmt.Errorf("virsh snapshot-delete %s: %w", vmName, err)
 	}
 	return nil

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// GatewayToken 是一次性迁移令牌：绑定源主机与操作范围，哈希存储，
-// 短生命周期且连接成功后即被消费（一次性），避免令牌泄露可被重复使用。
+// GatewayToken 是迁移令牌：绑定源主机与操作范围，哈希存储。
+// 首次使用时标记为已消费，但允许已消费的令牌用于重连验证（直到过期）。
 type GatewayToken struct {
 	TokenHash  string     `json:"-"`
 	HostID     uint       `json:"host_id"`
@@ -20,7 +20,7 @@ type GatewayToken struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-// TokenService 负责一次性令牌的签发与校验（纯内存存储）。
+// TokenService 负责令牌的签发与校验（纯内存存储）。
 type TokenService struct {
 	ttl       time.Duration
 	maxLength int
@@ -29,7 +29,7 @@ type TokenService struct {
 	tokens map[string]*GatewayToken // key = tokenHash
 }
 
-// TokenConfig 配置一次性令牌规则。
+// TokenConfig 配置令牌规则。
 type TokenConfig struct {
 	TTL       time.Duration
 	MaxLength int
@@ -51,7 +51,7 @@ func NewTokenService(cfg TokenConfig) *TokenService {
 	return s
 }
 
-// Issue 签发一个绑定主机与操作的一次性令牌，返回明文 token 供下发给 agent。
+// Issue 签发一个绑定主机与操作的令牌，返回明文 token 供下发给 agent。
 func (s *TokenService) Issue(hostID uint, operation string) (string, *GatewayToken, error) {
 	plain, err := generateToken()
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *TokenService) Issue(hostID uint, operation string) (string, *GatewayTok
 	return plain, tok, nil
 }
 
-// Consume 校验令牌是否有效并一次性消费。无效返回 ErrInvalidToken。
+// Consume 校验令牌是否有效并标记为已消费。已消费的令牌仍可通过 Validate 用于重连。
 func (s *TokenService) Consume(plain string) (*GatewayToken, error) {
 	if plain == "" || len(plain) > s.maxLength {
 		return nil, ErrInvalidToken
@@ -85,18 +85,38 @@ func (s *TokenService) Consume(plain string) (*GatewayToken, error) {
 	if !ok {
 		return nil, ErrInvalidToken
 	}
-	if tok.ConsumedAt != nil {
-		return nil, ErrTokenConsumed
+	if time.Now().After(tok.ExpiresAt) {
+		return nil, ErrTokenExpired
+	}
+	// 标记为已消费（首次注册），但不从 map 中删除，允许重连时验证。
+	if tok.ConsumedAt == nil {
+		now := time.Now()
+		tok.ConsumedAt = &now
+	}
+	return tok, nil
+}
+
+// Validate 校验令牌是否有效（不改变消费状态），用于 agent 重连时验证身份。
+func (s *TokenService) Validate(plain string) (*GatewayToken, error) {
+	if plain == "" || len(plain) > s.maxLength {
+		return nil, ErrInvalidToken
+	}
+	h := hashToken(plain)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	tok, ok := s.tokens[h]
+	if !ok {
+		return nil, ErrInvalidToken
 	}
 	if time.Now().After(tok.ExpiresAt) {
 		return nil, ErrTokenExpired
 	}
-	now := time.Now()
-	tok.ConsumedAt = &now
 	return tok, nil
 }
 
-// cleanupLoop 每分钟清理已过期或已消费的令牌。
+// cleanupLoop 每分钟清理已过期的令牌。
 func (s *TokenService) cleanupLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -104,7 +124,7 @@ func (s *TokenService) cleanupLoop() {
 		s.mu.Lock()
 		now := time.Now()
 		for h, tok := range s.tokens {
-			if tok.ConsumedAt != nil || now.After(tok.ExpiresAt) {
+			if now.After(tok.ExpiresAt) {
 				delete(s.tokens, h)
 			}
 		}
