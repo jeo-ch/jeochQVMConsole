@@ -18,6 +18,7 @@ type snapshotParams struct {
 type pullParams struct {
 	VMName         string    `json:"vm_name"`
 	DiskTarget     string    `json:"disk_target"`
+	SnapshotName   string    `json:"snapshot_name"`
 	TargetDiskPath string    `json:"target_disk_path"`
 	TargetSSH      TargetSSH `json:"target_ssh"`
 }
@@ -89,13 +90,19 @@ func (c *Client) runPull(params map[string]interface{}, progress func(int, strin
 		return nil, fmt.Errorf("vm_name, target_ssh and target_disk_path are required")
 	}
 
-	// 运行中的 VM 创建原子 disk-only 快照作为一致性检查点；传输完成或失败后均需清理。
-	snap := uniqueSnapshotName(p.VMName)
 	state, err := domState(p.VMName)
 	if err != nil {
 		return nil, err
 	}
-	if state == "running" {
+
+	// 快照处理：网关传入 snapshot_name 表示快照已存在；未传且 VM 运行中则自建并在完成后清理。
+	snap := p.SnapshotName
+	ownSnapshot := false
+	if snap == "" && state == "running" {
+		snap = uniqueSnapshotName(p.VMName)
+		ownSnapshot = true
+	}
+	if ownSnapshot {
 		progress(0, "creating snapshot")
 		if err := createSnapshot(p.VMName, snap, true); err != nil {
 			return nil, err
@@ -120,9 +127,13 @@ func (c *Client) runPull(params map[string]interface{}, progress func(int, strin
 	if disk.SourcePath == "" {
 		return nil, fmt.Errorf("disk %s not found for vm %s", p.DiskTarget, p.VMName)
 	}
-	// 在线快照后源指向 overlay，需回溯其底层真实磁盘；离线 VM 的 XML 源即为真实磁盘。
-	if state == "running" {
+	// 快照后源指向 overlay，需回溯其底层真实磁盘；离线 VM 的 XML 源即为真实磁盘。
+	if snap != "" {
 		disk.SourcePath = resolveBackingFile(disk.SourcePath)
+	}
+	// 填充磁盘大小（qemu-img info 获取虚拟容量）。
+	if sz, err := diskSizeBytes(disk.SourcePath); err == nil {
+		disk.SizeBytes = sz
 	}
 	disk.TargetDiskPath = p.TargetDiskPath
 

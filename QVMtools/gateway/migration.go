@@ -42,10 +42,9 @@ type DiskInfo struct {
 // TargetSSH 描述迁移落点（目标节点）的 SSH 接入信息，由控制台侧解析目标主机后注入。
 type TargetSSH struct {
 	Host       string `json:"host"`       // 目标节点 IP 或主机名
-	Port       int    `json:"port"`       // SSH 端口，默认 22
+	Port       string `json:"port"`       // SSH 端口，默认 "22"
 	User       string `json:"user"`       // SSH 登录用户，默认 root
 	AuthMethod string `json:"auth_method"` // key | password
-	KeyPath    string `json:"key_path,omitempty"`    // 源 agent 机已有私钥路径
 	KeyContent string `json:"key_content,omitempty"` // base64 编码私钥内容（控制台注入）
 	Password   string `json:"password,omitempty"`    // 密码鉴权（控制台注入）
 }
@@ -55,6 +54,7 @@ type MigrationRequest struct {
 	SourceHostID   uint      `json:"source_host_id"`
 	TargetHostID   uint      `json:"target_host_id"`
 	VMName         string    `json:"vm_name"`
+	DiskTarget     string    `json:"disk_target"`
 	SnapshotName   string    `json:"snapshot_name"`
 	TargetDiskPath string    `json:"target_disk_path"`
 	Format         string    `json:"format"`
@@ -96,6 +96,7 @@ func (s *MigrationService) Snapshot(ctx context.Context, hostID uint, vmName, sn
 func (s *MigrationService) Pull(ctx context.Context, hostID uint, req MigrationRequest, progress func(int, string)) (*PullResult, error) {
 	params := map[string]interface{}{
 		"vm_name":          req.VMName,
+		"disk_target":      req.DiskTarget,
 		"snapshot_name":    req.SnapshotName,
 		"target_host_id":   req.TargetHostID,
 		"target_disk_path": req.TargetDiskPath,

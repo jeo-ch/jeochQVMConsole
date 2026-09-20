@@ -74,8 +74,12 @@ func (m *Manager) HandleConnection(conn *websocket.Conn) {
 	defer cleanupConnection(m, c)
 
 	// 握手：校验一次性令牌并注册到源主机。
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		return
+	}
 	var reg WSMessage
-	if _, _, err := conn.ReadMessage(); err != nil {
+	if err := json.Unmarshal(raw, &reg); err != nil {
 		return
 	}
 	if err := handshake(c, &reg, m); err != nil {
@@ -88,10 +92,14 @@ func (m *Manager) HandleConnection(conn *websocket.Conn) {
 
 	// 读取循环。
 	for {
-		var msg WSMessage
 		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
 			return
+		}
+		var msg WSMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			continue
 		}
 		switch msg.Type {
 		case msgTypeProgress:
