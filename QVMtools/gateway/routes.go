@@ -1,0 +1,34 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/gin-gonic/gin"
+	"kvm_console/model"
+	"kvm_console/taskqueue"
+)
+
+// RegisterRoutes 注册网关所有 HTTP 与 WS 路由。
+// 由 console router 在 /api 组内调用，保持与既有路由风格一致。
+func RegisterRoutes(r *gin.Engine, h *Handler) {
+	api := r.Group("/api/gateway")
+	{
+		api.GET("/hosts/:id/token", h.IssueToken)
+		api.GET("/hosts/:id/status", h.HostStatus)
+		api.POST("/migrations", h.StartMigration)
+	}
+	// agent 回连端点（一次性令牌走 query）。
+	r.GET("/api/gateway/agent/connect", h.WebSocketHandler)
+}
+
+// RegisterTaskHandler 注册迁移任务处理器到任务队列。
+func RegisterTaskHandler(mig *MigrationService) {
+	taskqueue.RegisterHandler("gateway_migration", func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error) {
+		var req MigrationRequest
+		if err := json.Unmarshal([]byte(task.Params), &req); err != nil {
+			return "failed", err
+		}
+		return mig.RunMigration(ctx, req, progress)
+	})
+}
