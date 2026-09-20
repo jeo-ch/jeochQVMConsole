@@ -5,25 +5,22 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"kvm_console_gateway/internal/taskqueue"
 )
 
 // Handler 封装网关对外 HTTP 接口。
 type Handler struct {
-	manager  *Manager
-	tokens   *TokenService
+	manager   *Manager
+	tokens    *TokenService
 	migrations *MigrationService
-	db       *gorm.DB
 }
 
 // NewHandler 构造网关 Handler。
-func NewHandler(m *Manager, t *TokenService, mig *MigrationService, db *gorm.DB) *Handler {
+func NewHandler(m *Manager, t *TokenService, mig *MigrationService) *Handler {
 	return &Handler{
-		manager:  m,
-		tokens:   t,
+		manager:   m,
+		tokens:    t,
 		migrations: mig,
-		db:       db,
 	}
 }
 
@@ -41,7 +38,6 @@ func (h *Handler) IssueToken(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid host id"})
 		return
 	}
-	// 令牌绑定源主机 ID（控制台 HostNode ID），由控制台侧传入，网关侧不查 HostNode 表。
 	plain, _, err := h.tokens.Issue(uint(id), "register")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

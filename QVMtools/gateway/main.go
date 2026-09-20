@@ -8,9 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	sqllogger "gorm.io/gorm/logger"
 
 	"kvm_console_gateway/internal/taskqueue"
 )
@@ -21,7 +18,6 @@ type GatewayConfig struct {
 	TokenTTL       int
 	TokenMaxLength int
 	TaskWorkers    int
-	DBPath         string
 	LogLevel       string
 }
 
@@ -32,7 +28,6 @@ func loadGatewayConfig() *GatewayConfig {
 		TokenTTL:       getEnvInt("GATEWAY_TOKEN_TTL_SECONDS", 1800),
 		TokenMaxLength: getEnvInt("GATEWAY_TOKEN_MAX_LENGTH", 256),
 		TaskWorkers:    getEnvInt("GATEWAY_TASK_WORKERS", 3),
-		DBPath:         getEnv("GATEWAY_DB_PATH", "./data/gateway.db"),
 		LogLevel:       getEnv("GATEWAY_LOG_LEVEL", "info"),
 	}
 }
@@ -40,23 +35,13 @@ func loadGatewayConfig() *GatewayConfig {
 func main() {
 	cfg := loadGatewayConfig()
 
-	db, err := gorm.Open(sqlite.Open(cfg.DBPath), &gorm.Config{
-		Logger: logLevelToMode(cfg.LogLevel),
-	})
-	if err != nil {
-		log.Fatalf("gateway 数据库连接失败: %v", err)
-	}
-	if err := db.AutoMigrate(&GatewayToken{}); err != nil {
-		log.Fatalf("gateway 数据库迁移失败: %v", err)
-	}
-
-	tokenSvc := NewTokenService(db, TokenConfig{
+	tokenSvc := NewTokenService(TokenConfig{
 		TTL:       time.Duration(cfg.TokenTTL) * time.Second,
 		MaxLength: cfg.TokenMaxLength,
 	})
 	mgr := NewManager(tokenSvc)
 	mig := NewMigrationService(mgr)
-	h := NewHandler(mgr, tokenSvc, mig, db)
+	h := NewHandler(mgr, tokenSvc, mig)
 
 	RegisterTaskHandler(mig)
 	taskqueue.Start(cfg.TaskWorkers)
@@ -69,18 +54,6 @@ func main() {
 	log.Printf("gateway 启动于 %s（端口 %d，令牌 TTL %ds，任务队列 worker=%d）", addr, cfg.Port, cfg.TokenTTL, cfg.TaskWorkers)
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("gateway 服务停止: %v", err)
-	}
-}
-
-// logLevelToMode 将网关日志级别映射为 gorm logger 级别。
-func logLevelToMode(level string) sqllogger.Interface {
-	switch level {
-	case "debug":
-		return sqllogger.Default.LogMode(sqllogger.Info)
-	case "warn":
-		return sqllogger.Default.LogMode(sqllogger.Warn)
-	default:
-		return sqllogger.Default.LogMode(sqllogger.Silent)
 	}
 }
 
