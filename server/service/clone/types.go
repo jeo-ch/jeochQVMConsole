@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 
-	vmmemory "kvm_console/service/vm/memory"
 	vmpkg "kvm_console/service/vm"
 	"kvm_console/service/vm_xml"
 )
@@ -50,9 +49,8 @@ type CloneParams struct {
 	CPUTopologyMode       string                     `json:"cpu_topology_mode,omitempty"`      // CPU 拓扑模式: auto/single_socket/host_default
 	CPULimitPercent       int                        `json:"cpu_limit_percent,omitempty"`      // CPU 限制百分比，0 表示无限制
 	CPUAffinity           string                     `json:"cpu_affinity,omitempty"`           // CPU 亲和性，如 "0,2,4"
-	FirstBootRebootMode   string                           `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略: normal/cold
-	MemoryDynamic         *vmmemory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`        // 内存动态调整
-	SwitchID              uint                             `json:"switch_id,omitempty"`
+	FirstBootRebootMode   string                     `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略: normal/cold
+	SwitchID              uint                       `json:"switch_id,omitempty"`
 	SecurityGroupID       uint                       `json:"security_group_id,omitempty"`
 	AllowedIPv4Addresses  string                     `json:"allowed_ipv4_addresses,omitempty"`
 	AllowedIPv6Addresses  string                     `json:"allowed_ipv6_addresses,omitempty"`
@@ -114,9 +112,8 @@ type BatchCloneParams struct {
 	CPUTopologyMode      string                     `json:"cpu_topology_mode,omitempty"`      // CPU 拓扑模式
 	CPULimitPercent      int                        `json:"cpu_limit_percent,omitempty"`      // CPU 限制百分比，0 表示无限制
 	CPUAffinity          string                     `json:"cpu_affinity,omitempty"`           // CPU 亲和性，如 "0,2,4"
-	FirstBootRebootMode  string                           `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略
-	MemoryDynamic        *vmmemory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"`        // 内存动态调整
-	SystemDiskIOPS       *DiskIOPSTune                    `json:"system_disk_iops,omitempty"`      // 系统盘 IOPS 限制
+	FirstBootRebootMode  string                     `json:"first_boot_reboot_mode,omitempty"` // 首次重启策略
+	SystemDiskIOPS       *DiskIOPSTune              `json:"system_disk_iops,omitempty"`      // 系统盘 IOPS 限制
 	NicModel             string                           `json:"nic_model,omitempty"`              // 网卡模型
 	StoragePoolID        string                     `json:"storage_pool_id,omitempty"`        // 存储池
 	SwitchID             uint                       `json:"switch_id,omitempty"`              // VPC 交换机 ID

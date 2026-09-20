@@ -11,7 +11,6 @@ import (
 	"kvm_console/service"
 	clonepkg "kvm_console/service/clone"
 	libvirt_rpc "kvm_console/service/libvirt_rpc"
-	vm_memory "kvm_console/service/vm/memory"
 	"kvm_console/service/vm/migration"
 	"kvm_console/service/vm_xml"
 	"kvm_console/taskqueue"
@@ -59,7 +58,6 @@ type CloneVmRequest struct {
 	CPUAffinity          string                            `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode  string                            `json:"first_boot_reboot_mode"`
 	TemplateCategory     string                            `json:"template_category,omitempty"` // 模板二级分类（如 WindowsServer2025/WindowsServer2022 等）
-	MemoryDynamic        *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic"`
 	SwitchID             uint                              `json:"switch_id"`
 	SecurityGroupID      uint                              `json:"security_group_id"`
 	AllowedIPv4Addresses string                            `json:"allowed_ipv4_addresses"`
@@ -118,7 +116,6 @@ type BatchCloneRequest struct {
 	CPULimitPercent     int                             `json:"cpu_limit_percent"`
 	CPUAffinity         string                          `json:"cpu_affinity"` // CPU 亲和性，如 "0,2,4"
 	FirstBootRebootMode string                          `json:"first_boot_reboot_mode"`
-	MemoryDynamic       *vm_memory.VMMemoryDynamicRequest `json:"memory_dynamic,omitempty"` // 内存动态调整
 	SystemDiskIOPS      *service.DiskIOPSTune            `json:"system_disk_iops,omitempty"` // 系统盘 IOPS 限制（仅管理员）
 	SwitchID            uint                            `json:"switch_id"`         // VPC 交换机 ID
 	SecurityGroupID     uint                            `json:"security_group_id"` // 安全组 ID
@@ -290,7 +287,6 @@ func CloneVm(c *gin.Context) {
 		CPUAffinity:          req.CPUAffinity,
 		FirstBootRebootMode:  req.FirstBootRebootMode,
 		TemplateCategory:     req.TemplateCategory,
-		MemoryDynamic:        req.MemoryDynamic,
 		SwitchID:             req.SwitchID,
 		SecurityGroupID:      req.SecurityGroupID,
 		AllowedIPv4Addresses: req.AllowedIPv4Addresses,
@@ -313,9 +309,6 @@ func CloneVm(c *gin.Context) {
 	}
 
 	params.IsAdmin = isAdmin
-	if !isAdmin {
-		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
-	}
 	if len(req.HostDevices) > 0 && !isAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "仅管理员可配置硬件直通设备"})
 		return
@@ -520,7 +513,6 @@ func BatchCloneVm(c *gin.Context) {
 		CPULimitPercent:     req.CPULimitPercent,
 		CPUAffinity:         req.CPUAffinity,
 		FirstBootRebootMode: req.FirstBootRebootMode,
-		MemoryDynamic:       req.MemoryDynamic,
 		SystemDiskIOPS:      req.SystemDiskIOPS,
 		SwitchID:            req.SwitchID,
 		SecurityGroupID:     req.SecurityGroupID,
@@ -540,10 +532,6 @@ func BatchCloneVm(c *gin.Context) {
 		NestedVirt:          req.NestedVirt,
 		KVMHidden:           req.KVMHidden,
 		VendorID:            req.VendorID,
-	}
-
-	if !isAdmin {
-		params.MemoryDynamic = sanitizeUserMemoryDynamicRequest(req.MemoryDynamic, req.RAM)
 	}
 
 	username, _ := c.Get("username")

@@ -12,7 +12,6 @@ import (
 	"kvm_console/logger"
 	"kvm_console/service/ip_resolver"
 	"kvm_console/service/libvirt_rpc"
-	"kvm_console/service/vm/memory"
 	"kvm_console/utils"
 )
 
@@ -232,20 +231,3 @@ func parseInfoInt(output, key string) int {
 	return 0
 }
 
-// applyMemoryDynamicInfoToVMInfo 将 libvirt metadata 中的动态内存信息应用到 VMInfo 列表项
-func applyMemoryDynamicInfoToVMInfo(vm *VmInfo, info *memory.VMMemoryDynamicInfo) {
-	if vm == nil || info == nil {
-		return
-	}
-	vm.MemoryInitial = info.MemoryInitial
-	vm.MemoryMin = info.MemoryMin
-	vm.MemoryMaxDynamic = info.MemoryMax
-	vm.MemoryBackend = info.MemoryBackend
-	vm.MemoryVirtioMemCurrent = info.VirtioMemCurrent
-	vm.MemoryDynamicEnabled = info.DynamicEnabled
-	vm.MemoryAutoBalloon = info.AutoBalloon
-	vm.MemoryPendingApply = info.PendingApply
-	vm.MemoryCompatMode = info.CompatMode
-	vm.MemoryBalloonSupported = info.BalloonSupported
-	vm.MemoryBalloonStatus = info.BalloonStatus
-}
