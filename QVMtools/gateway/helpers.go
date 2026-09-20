@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"kvm_console/model"
+	"kvm_console_gateway/internal/model"
 )
 
 // userIDFromContext 从 gin context 取出当前登录用户 ID（API Key 路径下可能为空）。

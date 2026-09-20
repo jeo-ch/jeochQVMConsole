@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/gin-gonic/gin"
-	"kvm_console/model"
-	"kvm_console/taskqueue"
+	"kvm_console_gateway/internal/model"
+	"kvm_console_gateway/internal/taskqueue"
 )
 
 // RegisterRoutes 注册网关所有 HTTP 与 WS 路由。

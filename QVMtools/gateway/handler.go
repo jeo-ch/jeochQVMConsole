@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"kvm_console/taskqueue"
+	"kvm_console_gateway/internal/taskqueue"
 )
 
 // Handler 封装网关对外 HTTP 接口。

@@ -7,7 +7,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
-	kvm_console v0.0.0
 )
 
 require (
@@ -43,7 +42,4 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
-
-replace kvm_console => ../../server

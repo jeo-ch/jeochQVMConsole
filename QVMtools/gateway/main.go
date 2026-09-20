@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 	sqllogger "gorm.io/gorm/logger"
 
-	"kvm_console/taskqueue"
+	"kvm_console_gateway/internal/taskqueue"
 )
 
 // GatewayConfig 网关模块本地配置，全部经环境变量注入，避免硬编码。
