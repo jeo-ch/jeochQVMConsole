@@ -207,8 +207,10 @@ func revertExternalSnapshot(vmName, snapName string) error {
 	for _, disk := range currentDiskList {
 		restoreDisk, ok := restoreDisks[disk.target]
 		if ok && disk.source != restoreDisk {
-			escapedOld := sedEscapeReplacement(disk.source)
-			escapedNew := sedEscapeReplacement(restoreDisk)
+			// 转义路径中的特殊字符
+			escapedOld := strings.ReplaceAll(disk.source, "/", "\\/")
+			escapedOld = strings.ReplaceAll(escapedOld, ".", "\\.")
+			escapedNew := strings.ReplaceAll(restoreDisk, "/", "\\/")
 			sedParts = append(sedParts, fmt.Sprintf("s|%s|%s|g", escapedOld, escapedNew))
 		}
 	}
@@ -228,9 +230,11 @@ func revertExternalSnapshot(vmName, snapName string) error {
 	if dumpResult.Error == nil {
 		hasBackingStore := strings.Contains(dumpResult.Stdout, "<backingStore")
 		if hasBackingStore {
-			cleanResult := virshEditWithSed(vmName, []string{"/<backingStore type/,/<\\/backingStore>/d"})
-			if cleanResult != nil {
-				logger.App.Warn("清理 backingStore 失败", "error", cleanResult.Error())
+			if err := virshEditWithSed(vmName, []string{"/<backingStore type/,/<\\/backingStore>/d"}); err != nil {
+				logger.App.Warn("清理 backingStore 失败", "error", err)
+			}
+		}
+	}
 			}
 		}
 	}
