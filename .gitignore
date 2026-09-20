@@ -62,3 +62,5 @@ web-backup/
 
 # minisign 私钥（敏感，不入库，见 docs/GCHSJ/minisign-publishing.md）
 .minisign-sec/
+QVMtools/*/kvm-agent*
+QVMtools/*/kvm-gateway*
