@@ -252,13 +252,20 @@ func (c *Client) runDefine(params map[string]interface{}, progress ProgressFunc)
 		return nil, fmt.Errorf("upload xml: %w", err)
 	}
 
-	// 确保目标主机 default 网络已激活（VM 需要 default NAT 网络）。
-	progress(25, "激活目标 default 网络")
-	ensureDefaultNet := sshCommand(p.TargetSSH, keyFile, "virsh", "net-start", "default")
-	ensureDefaultNet.Run()
-	// 设置 default 网络自动启动（幂等：已活跃则无副作用）。
-	autostartNet := sshCommand(p.TargetSSH, keyFile, "virsh", "net-autostart", "default")
-	autostartNet.Run()
+	// 检测目标主机是否有 default 网络，据此决定网络适配策略。
+	progress(25, "检测目标网络配置")
+	hasDefaultNet := checkNetworkExists(p.TargetSSH, keyFile, "default")
+	if hasDefaultNet {
+		// 目标有 default 网络，尝试激活。
+		sshCommand(p.TargetSSH, keyFile, "virsh", "net-start", "default").Run()
+		sshCommand(p.TargetSSH, keyFile, "virsh", "net-autostart", "default").Run()
+		newXML = adaptNetworkForTarget(newXML, true)
+		log.Printf("[define] target has default network, using NAT")
+	} else {
+		// 目标无 default 网络，移除 default 网卡，保留 OVS 或无网卡。
+		newXML = adaptNetworkForTarget(newXML, false)
+		log.Printf("[define] target has no default network, removing NAT interface")
+	}
 
 	progress(30, "在目标主机上定义 VM")
 	ssh := sshCommand(p.TargetSSH, keyFile, "virsh", "define", "/tmp/qvm.define.xml")
@@ -383,18 +390,16 @@ func adaptXMLForTarget(sourceXML, vmName, targetDiskPath string) string {
 	xml := sourceXML
 
 	// 1. 替换磁盘源路径。
-	// 查找 <source file='...'/> 并替换。
 	xml = replaceDiskSource(xml, targetDiskPath)
 
 	// 2. 生成新 UUID。
 	newUUID := generateUUID()
 	xml = replaceUUID(xml, newUUID)
 
-	// 3. 移除 cdrom 设备（从 <disk type='file' device='cdrom'> 到 </disk>）。
+	// 3. 移除 cdrom 设备。
 	xml = removeCdrom(xml)
 
-	// 4. 网络改为 default（移除 OVS 配置）。
-	xml = adaptNetwork(xml)
+	// 4. 网络适配由 runDefine 根据目标主机网络情况单独处理。
 
 	return xml
 }
@@ -459,12 +464,58 @@ func removeCdrom(xml string) string {
 	return xml
 }
 
-// adaptNetwork 简化网络配置：移除 OVS virtualport，使用 default 网络。
-func adaptNetwork(xml string) string {
-	// 替换 bridge 网络为 default。
-	xml = strings.Replace(xml, "<interface type='bridge'>", "<interface type='network'>", 1)
-	xml = strings.Replace(xml, "<source bridge='br-ovs'/>", "<source network='default'/>", 1)
-	// 移除 virtualport 块（含子元素）。
+// checkNetworkExists 通过 SSH 在目标主机检查指定 libvirt 网络是否存在（含未激活）。
+func checkNetworkExists(tgt TargetSSH, keyFile, networkName string) bool {
+	ssh := sshCommand(tgt, keyFile, "virsh", "net-info", networkName)
+	out, err := ssh.Output()
+	if err != nil {
+		log.Printf("[define] net-info %s: %v (output: %s)", networkName, err, strings.TrimSpace(string(out)))
+		return false
+	}
+	return strings.Contains(string(out), "Active:")
+}
+
+// adaptNetworkForTarget 根据目标主机网络情况适配 VM 网络接口。
+// hasDefault=true：将 OVS 桥接改为 default NAT；hasDefault=false：移除 default 网卡。
+func adaptNetworkForTarget(xml string, hasDefault bool) string {
+	if hasDefault {
+		xml = strings.Replace(xml, "<interface type='bridge'>", "<interface type='network'>", 1)
+		xml = strings.Replace(xml, "<source bridge='br-ovs'/>", "<source network='default'/>", 1)
+		xml = removeVirtualport(xml)
+		return xml
+	}
+	// 无 default 网络：移除引用 default 网络的接口块，保留 OVS。
+	xml = removeNetworkInterface(xml, "default")
+	return xml
+}
+
+// removeNetworkInterface 移除引用指定网络的 <interface type='network'> 块。
+// 仅移除 <source network='networkName'/> 匹配的接口，保留其他网络接口。
+func removeNetworkInterface(xml, networkName string) string {
+	networkRef := fmt.Sprintf("<source network='%s'/>", networkName)
+	for {
+		ifaceStart := strings.Index(xml, "<interface type='network'>")
+		if ifaceStart == -1 {
+			break
+		}
+		ifaceEnd := strings.Index(xml[ifaceStart:], "</interface>")
+		if ifaceEnd == -1 {
+			break
+		}
+		ifaceEnd += ifaceStart + len("</interface>")
+		ifaceBlock := xml[ifaceStart:ifaceEnd]
+		if strings.Contains(ifaceBlock, networkRef) {
+			xml = xml[:ifaceStart] + xml[ifaceEnd:]
+		} else {
+			// 跳过不匹配的块，从其后继续。
+			break
+		}
+	}
+	return xml
+}
+
+// removeVirtualport 移除所有 <virtualport> 块。
+func removeVirtualport(xml string) string {
 	for {
 		vpStart := strings.Index(xml, "<virtualport")
 		if vpStart == -1 {

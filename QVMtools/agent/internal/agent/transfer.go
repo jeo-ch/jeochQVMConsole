@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -66,6 +67,11 @@ func pullDisk(disk DiskInfo, tgt TargetSSH, progress ProgressFunc) (PullResult, 
 	}
 	if !strings.EqualFold(sum, remoteSum) {
 		return PullResult{}, fmt.Errorf("checksum mismatch: local=%s remote=%s", sum, remoteSum)
+	}
+
+	// 清除 qcow2 backing file 引用（迁移快照残留），使镜像可独立启动。
+	if err := rebaseRemoteDisk(tgt, keyFile, disk.TargetDiskPath); err != nil {
+		log.Printf("[pull] rebase warning: %v (non-fatal)", err)
 	}
 
 	return PullResult{
@@ -306,4 +312,18 @@ func parseSha256(out string) string {
 		return ""
 	}
 	return fields[0]
+}
+
+// rebaseRemoteDisk 在目标主机上清除 qcow2 的 backing file 引用，使镜像可独立启动。
+// 迁移产生的 qcow2 可能引用源端快照作为 backing file，目标端不存在该文件会导致启动失败。
+func rebaseRemoteDisk(tgt TargetSSH, keyFile, diskPath string) error {
+	// 使用 bash -c 执行，避免 exec.Command 参数拆分导致空引号丢失。
+	remoteCmd := fmt.Sprintf("qemu-img rebase -u -b '' -F qcow2 -f qcow2 %s", diskPath)
+	ssh := sshCommand(tgt, keyFile, "bash", "-c", remoteCmd)
+	out, err := ssh.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("qemu-img rebase %s: %w: %s", diskPath, err, stripSSHWarnings(string(out)))
+	}
+	log.Printf("[pull] rebase completed: %s", diskPath)
+	return nil
 }
