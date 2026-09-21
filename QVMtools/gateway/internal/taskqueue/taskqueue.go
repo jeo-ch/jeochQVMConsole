@@ -13,7 +13,7 @@ import (
 )
 
 // TaskFunc 任务执行函数类型。
-type TaskFunc func(ctx context.Context, task *model.Task, progress func(int, string)) (string, error)
+type TaskFunc func(ctx context.Context, task *model.Task, progress func(int, string, ...json.RawMessage)) (string, error)
 
 var (
 	handlers   = make(map[string]TaskFunc)
@@ -77,6 +77,33 @@ func SubmitWithStruct(taskType string, params interface{}, createdBy string) (*m
 	return Submit(taskType, string(b), createdBy)
 }
 
+// GetTask 根据 ID 获取任务快照（返回副本，安全读取）。
+func GetTask(id uint) (*model.Task, bool) {
+	taskStoreMu.RLock()
+	task, ok := taskStore[id]
+	taskStoreMu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	// 返回副本，避免并发读写。
+	cp := *task
+	return &cp, true
+}
+
+// ListTasksByType 按类型列出所有任务（返回副本）。
+func ListTasksByType(taskType string) []*model.Task {
+	taskStoreMu.RLock()
+	defer taskStoreMu.RUnlock()
+	var result []*model.Task
+	for _, t := range taskStore {
+		if t.Type == taskType {
+			cp := *t
+			result = append(result, &cp)
+		}
+	}
+	return result
+}
+
 func worker(id int) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -129,10 +156,13 @@ func processTask(workerID int, taskID uint) {
 	taskStoreMu.Unlock()
 
 	ctx := context.Background()
-	progressFn := func(p int, msg string) {
+	progressFn := func(p int, msg string, detail ...json.RawMessage) {
 		taskStoreMu.Lock()
 		task.Progress = p
 		task.Message = msg
+		if len(detail) > 0 {
+			task.Detail = detail[0]
+		}
 		task.UpdatedAt = time.Now()
 		taskStoreMu.Unlock()
 	}

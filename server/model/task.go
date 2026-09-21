@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -77,16 +78,17 @@ const (
 // 记录与自增 ID 序列，并将重启前遗留的 pending/running 任务标记为 failed（任务中断），
 // 避免"重启即失联 + 任务 ID 归零"导致前端句柄失效。
 type Task struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Type      string    `json:"type"`       // 任务类型
-	Status    string    `json:"status"`     // 任务状态
-	Params    string    `json:"params"`     // 任务参数（JSON）
-	Result    string    `json:"result"`     // 执行结果（JSON）
-	Progress  int       `json:"progress"`   // 进度（0-100）
-	Message   string    `json:"message"`    // 状态消息
-	CreatedBy string    `json:"created_by"` // 创建人
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uint            `gorm:"primaryKey" json:"id"`
+	Type      string          `json:"type"`       // 任务类型
+	Status    string          `json:"status"`     // 任务状态
+	Params    string          `json:"params"`     // 任务参数（JSON）
+	Result    string          `json:"result"`     // 执行结果（JSON）
+	Progress  int             `json:"progress"`   // 进度（0-100）
+	Message   string          `json:"message"`    // 状态消息
+	Detail    json.RawMessage `json:"detail,omitempty"` // 扩展详情（如网关迁移传输速度等）
+	CreatedBy string          `json:"created_by"` // 创建人
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // TableName 指定持久化表名

@@ -2,14 +2,27 @@ package agent
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
+// transferProgress 是传输进度的结构化信息，通过 JSON 上报给网关。
+type transferProgress struct {
+	BytesTransferred int64   `json:"bytes_transferred"`
+	TotalBytes       int64   `json:"total_bytes"`
+	Percent          float64 `json:"percent"`
+	SpeedBytes       int64   `json:"speed_bytes"`
+	SpeedHuman       string  `json:"speed_human"`
+	Elapsed          string  `json:"elapsed"`
+	ETA              string  `json:"eta"`
+}
+
 // pullDisk 将源磁盘文件经 SSH 流式直传到目标节点并校验一致性。
-func pullDisk(disk DiskInfo, tgt TargetSSH) (PullResult, error) {
+func pullDisk(disk DiskInfo, tgt TargetSSH, progress ProgressFunc) (PullResult, error) {
 	if disk.SourcePath == "" {
 		return PullResult{}, fmt.Errorf("disk source path is empty")
 	}
@@ -27,16 +40,24 @@ func pullDisk(disk DiskInfo, tgt TargetSSH) (PullResult, error) {
 		}
 	}()
 
-	// 源端校验和。
+	// 源端校验和（提前计算，避免传输后等待）。
 	sum, err := sha256sumLocal(disk.SourcePath)
 	if err != nil {
 		return PullResult{}, err
 	}
 
+	// 启动传输进度监控（后台 goroutine 定期查询目标端文件大小）。
+	doneCh := make(chan struct{})
+	if progress != nil && disk.SizeBytes > 0 {
+		go monitorTransferProgress(tgt, keyFile, disk.TargetDiskPath, disk.SizeBytes, progress, doneCh)
+	}
+
 	// 流式直传：cat 源文件 | ssh 目标端 dd 落盘，内存占用恒定。
 	if err := streamTransfer(disk.SourcePath, tgt, keyFile, disk.TargetDiskPath); err != nil {
+		close(doneCh)
 		return PullResult{}, err
 	}
+	close(doneCh)
 
 	// 目标端校验和并比对。
 	remoteSum, err := sha256sumRemote(tgt, keyFile, disk.TargetDiskPath)
@@ -52,6 +73,120 @@ func pullDisk(disk DiskInfo, tgt TargetSSH) (PullResult, error) {
 		Size:     disk.SizeBytes,
 		Path:     disk.TargetDiskPath,
 	}, nil
+}
+
+// monitorTransferProgress 后台定期查询目标端文件大小，计算并上报传输速度与进度。
+func monitorTransferProgress(tgt TargetSSH, keyFile, dstPath string, totalBytes int64, progress ProgressFunc, doneCh chan struct{}) {
+	startTime := time.Now()
+	var lastBytes int64
+	var lastTime time.Time
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-doneCh:
+			// 传输结束，发送最终进度。
+			elapsed := time.Since(startTime)
+			speed := calcSpeed(lastBytes, lastTime, startTime)
+			pct := float64(lastBytes) / float64(totalBytes) * 100
+			info := transferProgress{
+				BytesTransferred: lastBytes,
+				TotalBytes:       totalBytes,
+				Percent:          pct,
+				SpeedBytes:       speed,
+				SpeedHuman:       formatBytes(speed) + "/s",
+				Elapsed:          formatDuration(elapsed),
+				ETA:              "0s",
+			}
+			detail, _ := json.Marshal(info)
+			progress(int(pct), fmt.Sprintf("传输完成: %s / %s, 速度 %s, 用时 %s",
+				formatBytes(lastBytes), formatBytes(totalBytes), info.SpeedHuman, info.Elapsed), detail)
+			return
+		case <-ticker.C:
+			// 查询目标端当前文件大小。
+			curBytes := queryRemoteFileSize(tgt, keyFile, dstPath)
+			now := time.Now()
+			if curBytes <= 0 || curBytes == lastBytes {
+				continue
+			}
+
+			elapsed := time.Since(startTime)
+			var speed int64
+			if !lastTime.IsZero() && now.Sub(lastTime).Seconds() > 0 {
+				speed = int64(float64(curBytes-lastBytes) / now.Sub(lastTime).Seconds())
+			} else if elapsed.Seconds() > 0 {
+				speed = int64(float64(curBytes) / elapsed.Seconds())
+			}
+
+			pct := float64(curBytes) / float64(totalBytes) * 100
+			if pct > 99.9 {
+				pct = 99.9
+			}
+			info := transferProgress{
+				BytesTransferred: curBytes,
+				TotalBytes:       totalBytes,
+				Percent:          pct,
+				SpeedBytes:       speed,
+				SpeedHuman:       formatBytes(speed) + "/s",
+				Elapsed:          formatDuration(elapsed),
+				ETA:              calcETA(curBytes, totalBytes, speed),
+			}
+			detail, _ := json.Marshal(info)
+			progress(int(pct), fmt.Sprintf("已传输 %s / %s (%.1f%%), 速度 %s, 预计剩余 %s",
+				formatBytes(curBytes), formatBytes(totalBytes), pct, info.SpeedHuman, info.ETA), detail)
+
+			lastBytes = curBytes
+			lastTime = now
+		}
+	}
+}
+
+// queryRemoteFileSize 通过 SSH 查询目标端文件大小（字节），失败返回 0。
+func queryRemoteFileSize(tgt TargetSSH, keyFile, path string) int64 {
+	ssh := sshCommand(tgt, keyFile, "stat", "-c", "%s", path)
+	out, err := ssh.Output()
+	if err != nil {
+		return 0
+	}
+	cleaned := strings.TrimSpace(stripSSHWarnings(string(out)))
+	var size int64
+	fmt.Sscanf(cleaned, "%d", &size)
+	return size
+}
+
+// calcSpeed 计算平均传输速度（字节/秒）。
+func calcSpeed(lastBytes int64, lastTime, start time.Time) int64 {
+	if lastTime.IsZero() {
+		return 0
+	}
+	elapsed := lastTime.Sub(start).Seconds()
+	if elapsed <= 0 {
+		return 0
+	}
+	return int64(float64(lastBytes) / elapsed)
+}
+
+// calcETA 计算预计剩余时间。
+func calcETA(curBytes, totalBytes, speed int64) string {
+	if speed <= 0 || curBytes >= totalBytes {
+		return "0s"
+	}
+	remaining := totalBytes - curBytes
+	eta := time.Duration(float64(remaining) / float64(speed) * float64(time.Second))
+	return formatDuration(eta)
+}
+
+// formatDuration 将 Duration 格式化为简洁的可读形式。
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 // streamTransfer 通过 cat | ssh dd 管道把本地文件流式写入目标节点。

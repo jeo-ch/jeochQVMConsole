@@ -2,6 +2,7 @@
  * 任务详情抽屉（底部任务栏与任务中心页共用）
  * - 展示任务基础信息、参数与执行结果 JSON
  * - 执行结果中包含 download_path / extra_downloads 时提供下载按钮
+ * - 网关迁移任务显示实时传输进度卡片
  */
 import { Button, Descriptions, SideSheet, Tag } from '@douyinfe/semi-ui'
 import { IconDownload } from '@douyinfe/semi-icons'
@@ -10,6 +11,7 @@ import type { TaskItem } from '@/api/task'
 import { getTemplateExportDownloadUrl } from '@/api/template'
 import { formatDateTime } from '@/utils/format'
 import TaskMessage from './TaskMessage'
+import MigrationProgressCard from './MigrationProgressCard'
 
 interface DownloadLink {
   label: string
@@ -109,6 +111,11 @@ export default function TaskDetailSheet({ task, visible, onClose }: TaskDetailSh
             <Descriptions.Item itemKey="创建时间">{formatDateTime(task.created_at)}</Descriptions.Item>
             <Descriptions.Item itemKey="更新时间">{formatDateTime(task.updated_at)}</Descriptions.Item>
           </Descriptions>
+
+          {/* 网关迁移实时进度卡片：running 状态时轮询 gateway 获取速度/ETA */}
+          {(task.type === 'gateway_migration' || task.type === 'vm_migrate') && task.status === 'running' && (
+            <MigrationProgressCard taskId={task.id} />
+          )}
 
           {task.params && (
             <div style={{ marginTop: 16 }}>

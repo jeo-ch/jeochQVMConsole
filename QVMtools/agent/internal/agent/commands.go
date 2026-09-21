@@ -48,8 +48,11 @@ type cleanupParams struct {
 	SnapshotName string `json:"snapshot_name"`
 }
 
+// ProgressFunc 是命令执行中的进度回调类型，detail 用于携带结构化传输信息。
+type ProgressFunc func(pct int, msg string, detail ...json.RawMessage)
+
 // dispatch 按 action 派发本地命令，progress 回调用于上报进度。
-func (c *Client) dispatch(action string, params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) dispatch(action string, params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	switch action {
 	case "discover":
 		return c.runDiscover(progress)
@@ -71,7 +74,7 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 }
 
 // runDiscover 枚举本机 VM 与磁盘。
-func (c *Client) runDiscover(progress func(int, string)) (interface{}, error) {
+func (c *Client) runDiscover(progress ProgressFunc) (interface{}, error) {
 	progress(0, "enumerating virtual machines")
 	vms, err := discoverVMs()
 	if err != nil {
@@ -82,7 +85,7 @@ func (c *Client) runDiscover(progress func(int, string)) (interface{}, error) {
 }
 
 // runSnapshot 为在线 VM 创建 disk-only 原子快照。
-func (c *Client) runSnapshot(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runSnapshot(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parseSnapshotParams(params)
 	if err != nil {
 		return nil, err
@@ -99,7 +102,7 @@ func (c *Client) runSnapshot(params map[string]interface{}, progress func(int, s
 }
 
 // runPull 将磁盘经 SSH 直传到目标节点并校验。
-func (c *Client) runPull(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runPull(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parsePullParams(params)
 	if err != nil {
 		return nil, err
@@ -156,7 +159,7 @@ func (c *Client) runPull(params map[string]interface{}, progress func(int, strin
 	disk.TargetDiskPath = p.TargetDiskPath
 
 	progress(0, "transferring disk")
-	res, err := pullDisk(disk, p.TargetSSH)
+	res, err := pullDisk(disk, p.TargetSSH, progress)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +184,7 @@ func findDisk(disks []DiskInfo, target string) DiskInfo {
 }
 
 // runCutover 关闭源 VM 完成切流。
-func (c *Client) runCutover(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runCutover(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parseCutoverParams(params)
 	if err != nil {
 		return nil, err
@@ -198,7 +201,7 @@ func (c *Client) runCutover(params map[string]interface{}, progress func(int, st
 }
 
 // runCleanup 删除迁移用的临时快照。
-func (c *Client) runCleanup(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runCleanup(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parseCleanupParams(params)
 	if err != nil {
 		return nil, err
@@ -215,7 +218,7 @@ func (c *Client) runCleanup(params map[string]interface{}, progress func(int, st
 }
 
 // runDefine 在目标主机上定义 VM：获取源 VM XML，修改磁盘路径，通过 SSH 上传并 virsh define。
-func (c *Client) runDefine(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runDefine(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parseDefineParams(params)
 	if err != nil {
 		return nil, err
@@ -249,6 +252,14 @@ func (c *Client) runDefine(params map[string]interface{}, progress func(int, str
 		return nil, fmt.Errorf("upload xml: %w", err)
 	}
 
+	// 确保目标主机 default 网络已激活（VM 需要 default NAT 网络）。
+	progress(25, "激活目标 default 网络")
+	ensureDefaultNet := sshCommand(p.TargetSSH, keyFile, "virsh", "net-start", "default")
+	ensureDefaultNet.Run()
+	// 设置 default 网络自动启动（幂等：已活跃则无副作用）。
+	autostartNet := sshCommand(p.TargetSSH, keyFile, "virsh", "net-autostart", "default")
+	autostartNet.Run()
+
 	progress(30, "在目标主机上定义 VM")
 	ssh := sshCommand(p.TargetSSH, keyFile, "virsh", "define", "/tmp/qvm.define.xml")
 	out, err := ssh.CombinedOutput()
@@ -266,7 +277,7 @@ func (c *Client) runDefine(params map[string]interface{}, progress func(int, str
 
 // runResolveStorage 查询目标主机的默认 VM 存储目录。
 // 通过 SSH 在目标主机执行命令获取存储池信息。
-func (c *Client) runResolveStorage(params map[string]interface{}, progress func(int, string)) (interface{}, error) {
+func (c *Client) runResolveStorage(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
 	p, err := parseResolveStorageParams(params)
 	if err != nil {
 		return nil, err

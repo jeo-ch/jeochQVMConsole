@@ -42,6 +42,7 @@ type envelope struct {
 	Data     json.RawMessage `json:"data,omitempty"`
 	Progress int             `json:"progress,omitempty"`
 	Message  string          `json:"message,omitempty"`
+	Detail   json.RawMessage `json:"detail,omitempty"` // 结构化进度详情（传输速度、ETA 等）
 }
 
 // Client 维护与网关的 WS 长连接，接收并回源主机命令。
@@ -261,8 +262,8 @@ func (c *Client) handleCommand(e envelope) {
 	}()
 
 	// 命令执行期间通过 progress 通道回调上报进度。
-	data, err := c.dispatch(payload.Action, payload.Params, func(pct int, msg string) {
-		c.reportProgress(e.ID, pct, msg)
+	data, err := c.dispatch(payload.Action, payload.Params, func(pct int, msg string, detail ...json.RawMessage) {
+		c.reportProgressDetail(e.ID, pct, msg, detail...)
 	})
 	if err != nil {
 		log.Printf("[agent] 命令执行失败: action=%s err=%v", payload.Action, err)
@@ -280,13 +281,22 @@ func (c *Client) ActiveCommands() int64 {
 
 // reportProgress 向网关上报某条命令的进度。
 func (c *Client) reportProgress(id string, pct int, msg string) {
+	c.reportProgressDetail(id, pct, msg)
+}
+
+// reportProgressDetail 向网关上报某条命令的进度，支持携带结构化详情。
+func (c *Client) reportProgressDetail(id string, pct int, msg string, detail ...json.RawMessage) {
 	if pct < 0 {
 		pct = 0
 	}
 	if pct > 100 {
 		pct = 100
 	}
-	if err := c.send(envelope{Type: msgProgress, ID: id, Progress: pct, Message: msg}); err != nil {
+	env := envelope{Type: msgProgress, ID: id, Progress: pct, Message: msg}
+	if len(detail) > 0 {
+		env.Detail = detail[0]
+	}
+	if err := c.send(env); err != nil {
 		log.Printf("[agent] report progress failed: %v", err)
 	}
 }

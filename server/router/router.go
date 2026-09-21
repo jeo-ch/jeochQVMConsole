@@ -2,18 +2,26 @@ package router
 
 import (
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"kvm_console/config"
 	"kvm_console/handler"
 	"kvm_console/logger"
 	"kvm_console/middleware"
 )
+
+// upgrader 用于 WebSocket 连接升级。
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
 // Setup 初始化路由
 func Setup() *gin.Engine {
@@ -592,6 +600,9 @@ func Setup() *gin.Engine {
 		}
 	}
 
+	// ==================== 网关代理（迁移任务状态查询） ====================
+	setupGatewayProxy(r)
+
 	// ==================== 前端静态文件服务（生产环境） ====================
 	setupStaticFileServing(r)
 
@@ -669,4 +680,94 @@ func setupStaticFileServing(r *gin.Engine) {
 		c.Header("Expires", "0")
 		c.File(filepath.Join(absWebDistDir, "index.html"))
 	})
+}
+
+// setupGatewayProxy 将 /api/gateway/* 请求代理到本地网关服务（端口 8090）。
+func setupGatewayProxy(r *gin.Engine) {
+	gatewayURL := os.Getenv("GATEWAY_URL")
+	if gatewayURL == "" {
+		gatewayURL = "http://127.0.0.1:8090"
+	}
+
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			gateway, _ := url.Parse(gatewayURL)
+			req.URL.Scheme = gateway.Scheme
+			req.URL.Host = gateway.Host
+			// 保留原始路径前缀 /api/gateway，网关内部也注册在 /api/gateway 下。
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// 移除网关添加的 CORS 头，由主服务统一处理。
+			resp.Header.Del("Access-Control-Allow-Origin")
+			return nil
+		},
+	}
+
+	r.Any("/api/gateway/*proxyPath", func(c *gin.Context) {
+		// WebSocket 升级请求需要特殊处理。
+		if c.GetHeader("Upgrade") == "websocket" {
+			proxyWebSocket(c, gatewayURL)
+			return
+		}
+		proxy.ServeHTTP(c.Writer, c.Request)
+	})
+}
+
+// proxyWebSocket 将 WebSocket 请求代理到网关。
+func proxyWebSocket(c *gin.Context, gatewayURL string) {
+	gateway, err := url.Parse(gatewayURL)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "invalid gateway url"})
+		return
+	}
+
+	// 构造目标 WebSocket URL。
+	targetURL := "ws://" + gateway.Host + c.Request.URL.Path
+	if c.Request.URL.RawQuery != "" {
+		targetURL += "?" + c.Request.URL.RawQuery
+	}
+
+	targetConn, _, err := websocket.DefaultDialer.Dial(targetURL, nil)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "connect gateway ws failed"})
+		return
+	}
+	defer targetConn.Close()
+
+	// 升级客户端连接。
+	clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer clientConn.Close()
+
+	// 双向转发。
+	errCh := make(chan error, 2)
+	go func() {
+		for {
+			_, msg, err := clientConn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if err := targetConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			_, msg, err := targetConn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if err := clientConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	<-errCh
 }

@@ -94,7 +94,7 @@ func (s *MigrationService) Snapshot(ctx context.Context, hostID uint, vmName, sn
 }
 
 // Pull 将目标磁盘从源主机经 SSH 直传到目标节点并做 sha256 校验。
-func (s *MigrationService) Pull(ctx context.Context, hostID uint, req MigrationRequest, progress func(int, string)) (*PullResult, error) {
+func (s *MigrationService) Pull(ctx context.Context, hostID uint, req MigrationRequest, progress func(int, string, ...json.RawMessage)) (*PullResult, error) {
 	params := map[string]interface{}{
 		"vm_name":          req.VMName,
 		"disk_target":      req.DiskTarget,
@@ -134,7 +134,7 @@ func (s *MigrationService) Cleanup(ctx context.Context, hostID uint, vmName, sna
 }
 
 // Define 在目标主机上定义 VM（通过源主机 agent SSH 到目标执行 virsh define）。
-func (s *MigrationService) Define(ctx context.Context, hostID uint, vmName, targetDiskPath string, targetSSH *TargetSSH, progress func(int, string)) error {
+func (s *MigrationService) Define(ctx context.Context, hostID uint, vmName, targetDiskPath string, targetSSH *TargetSSH, progress func(int, string, ...json.RawMessage)) error {
 	params := map[string]interface{}{
 		"vm_name":          vmName,
 		"target_disk_path": targetDiskPath,
@@ -165,7 +165,7 @@ func (s *MigrationService) ResolveStorage(ctx context.Context, hostID uint, targ
 }
 
 // RunMigration 按顺序执行一次完整迁移编排。
-func (s *MigrationService) RunMigration(ctx context.Context, req MigrationRequest, progress func(int, string)) (string, error) {
+func (s *MigrationService) RunMigration(ctx context.Context, req MigrationRequest, progress func(int, string, ...json.RawMessage)) (string, error) {
 	if req.Format == "" {
 		req.Format = "qcow2"
 	}

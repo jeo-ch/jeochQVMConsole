@@ -28,6 +28,7 @@ type WSMessage struct {
 	Data     json.RawMessage `json:"data,omitempty"`
 	Progress int             `json:"progress,omitempty"`
 	Message  string          `json:"message,omitempty"`
+	Detail   json.RawMessage `json:"detail,omitempty"` // 细粒度进度（传输速度、ETA 等）
 }
 
 // Connection 表示一个已认证并注册的 agent 长连接。
@@ -44,7 +45,7 @@ type Connection struct {
 // request 表示一次派发中的命令：结果从 ch 读取，进度经 onProgress 回调上报。
 type request struct {
 	ch         chan WSMessage
-	onProgress func(int, string)
+	onProgress func(int, string, ...json.RawMessage)
 }
 
 // Manager 管理所有已连接的 agent，并支持按主机派发命令并等待结果。
@@ -109,7 +110,7 @@ func (m *Manager) HandleConnection(conn *websocket.Conn) {
 				r := m.requests[id]
 				m.mu.RUnlock()
 				if r != nil && r.onProgress != nil {
-					r.onProgress(msg.Progress, msg.Message)
+					r.onProgress(msg.Progress, msg.Message, msg.Detail)
 				}
 			}
 		case msgTypeResult:
@@ -170,7 +171,7 @@ func sendRegisterResult(c *Connection, ok bool, msg string) error {
 }
 
 // DispatchCommand 向指定源主机派发命令并等待其结果。onProgress 非空时，agent 上报的进度会回调该函数。
-func (m *Manager) DispatchCommand(ctx context.Context, hostID uint, action string, params map[string]interface{}, onProgress func(int, string)) (*WSMessage, error) {
+func (m *Manager) DispatchCommand(ctx context.Context, hostID uint, action string, params map[string]interface{}, onProgress func(int, string, ...json.RawMessage)) (*WSMessage, error) {
 	m.mu.RLock()
 	c, ok := m.conns[hostID]
 	m.mu.RUnlock()

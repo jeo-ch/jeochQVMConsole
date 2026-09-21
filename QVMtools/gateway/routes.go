@@ -19,6 +19,8 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 		api.GET("/hosts/:id/token", h.IssueToken)
 		api.GET("/hosts/:id/status", h.HostStatus)
 		api.POST("/migrations", h.StartMigration)
+		api.GET("/migrations", h.ListMigrationTasks)
+		api.GET("/migrations/:id", h.GetMigrationStatus)
 	}
 	// agent 回连端点（一次性令牌走 query）。
 	r.GET("/api/gateway/agent/connect", h.WebSocketHandler)
@@ -26,7 +28,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 
 // RegisterTaskHandler 注册迁移任务处理器到任务队列。
 func RegisterTaskHandler(mig *MigrationService) {
-	taskqueue.RegisterHandler("gateway_migration", func(ctx context.Context, task *model.Task, progress func(int, string)) (result string, retErr error) {
+	taskqueue.RegisterHandler("gateway_migration", func(ctx context.Context, task *model.Task, progress func(int, string, ...json.RawMessage)) (result string, retErr error) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[migration] PANIC: %v", r)

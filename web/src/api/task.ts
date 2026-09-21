@@ -15,6 +15,7 @@ export interface TaskItem {
   result: string
   progress: number
   message: string
+  detail?: Record<string, unknown> // 扩展详情（网关迁移传输速度等）
   created_by: string
   created_at: string
   updated_at: string
