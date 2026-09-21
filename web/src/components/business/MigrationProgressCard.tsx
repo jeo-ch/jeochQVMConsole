@@ -4,7 +4,7 @@
  * 用于 agent-based 跨节点迁移场景。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Card, Progress, Spinner, Tag } from '@douyinfe/semi-ui'
+import { Card, Progress, Tag } from '@douyinfe/semi-ui'
 import { IconRefresh } from '@douyinfe/semi-icons'
 import { getGatewayMigrationStatus, type GatewayMigrationStatus } from '@/api/gateway'
 import { formatBytes } from '@/utils/format'
@@ -15,18 +15,11 @@ interface MigrationProgressCardProps {
   onError?: (msg: string) => void
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'grey',
-  running: 'blue',
-  done: 'green',
-  failed: 'red',
-}
-
-const statusLabels: Record<string, string> = {
-  pending: '等待中',
-  running: '迁移中',
-  done: '已完成',
-  failed: '失败',
+const statusConfig: Record<string, { color: 'blue' | 'green' | 'red' | 'grey'; label: string }> = {
+  pending: { color: 'grey', label: '等待中' },
+  running: { color: 'blue', label: '迁移中' },
+  done: { color: 'green', label: '已完成' },
+  failed: { color: 'red', label: '失败' },
 }
 
 export default function MigrationProgressCard({ taskId, onComplete, onError }: MigrationProgressCardProps) {
@@ -79,7 +72,7 @@ export default function MigrationProgressCard({ taskId, onComplete, onError }: M
     return (
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Spinner size="small" />
+          <IconRefresh spin />
           <span>正在获取迁移状态...</span>
         </div>
       </Card>
@@ -89,6 +82,7 @@ export default function MigrationProgressCard({ taskId, onComplete, onError }: M
   const detail = status.detail
   const isRunning = status.status === 'running'
   const progressPct = status.progress || 0
+  const cfg = statusConfig[status.status] || statusConfig.pending
 
   return (
     <Card
@@ -98,9 +92,9 @@ export default function MigrationProgressCard({ taskId, onComplete, onError }: M
       header={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontWeight: 600 }}>迁移进度</span>
-          <Tag color={statusColors[status.status] || 'grey'} style={{ marginLeft: 8 }}>
+          <Tag color={cfg.color} style={{ marginLeft: 8 }}>
             {isRunning && <IconRefresh spin style={{ marginRight: 4 }} />}
-            {statusLabels[status.status] || status.status}
+            {cfg.label}
           </Tag>
         </div>
       }
