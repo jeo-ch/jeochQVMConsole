@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -229,6 +234,194 @@ func (s *MigrationService) RunMigration(ctx context.Context, req MigrationReques
 	return "done", nil
 }
 
+// sanitizeMessage 清理进度消息中的控制字符，防止破坏 JSON 序列化。
+func sanitizeMessage(msg string) string {
+	// 移除制表符、回车符等控制字符，保留换行。
+	var b strings.Builder
+	for _, r := range msg {
+		if r == '\n' || r == '\r' || r == '\t' || (r < 32 && r != '\n') || r == 127 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// sshExecViaGateway 从网关通过 SSH 在远程主机执行命令。
+func sshExecViaGateway(ssh *TargetSSH, cmdParts ...string) (string, error) {
+	args := buildGatewaySSHArgs(ssh, cmdParts)
+	cmd := exec.Command("ssh", args...)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// buildGatewaySSHArgs 构造 SSH 命令行参数。
+func buildGatewaySSHArgs(ssh *TargetSSH, cmdParts []string) []string {
+	port := ssh.Port
+	if port == "" {
+		port = "22"
+	}
+	user := ssh.User
+	if user == "" {
+		user = "root"
+	}
+	host := user + "@" + ssh.Host
+
+	args := []string{
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
+		"-o", "ConnectTimeout=10",
+		"-p", port,
+	}
+	if ssh.AuthMethod == "key" && ssh.KeyContent != "" {
+		keyFile, err := writeTempKey(ssh.KeyContent)
+		if err == nil {
+			args = append(args, "-i", keyFile)
+		}
+	} else if ssh.AuthMethod == "password" && ssh.Password != "" {
+		// 网关侧使用 sshpass（需安装）。
+		args = append([]string{"sshpass", "-p", ssh.Password}, args...)
+	}
+	args = append(args, host)
+	args = append(args, cmdParts...)
+	return args
+}
+
+// writeTempKey 将 SSH 私钥写入临时文件。
+func writeTempKey(keyContent string) (string, error) {
+ decoded, err := base64.StdEncoding.DecodeString(keyContent)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp("", "qvm-gw-key-*")
+	if err != nil {
+		return "", err
+	}
+	f.Chmod(0600)
+	f.Write(decoded)
+	f.Close()
+	return f.Name(), nil
+}
+
+// gatewayDefineP2VMul 在 agent 断线时，网关直接 SSH 到目标主机定义 VM。
+func gatewayDefineP2VMul(ssh *TargetSSH, vmName, targetDiskPath string, ramMB, vcpus int) error {
+	if ssh == nil {
+		return fmt.Errorf("no target SSH credentials")
+	}
+
+	// 生成 VM XML。
+	uuid := generateGatewayUUID()
+	ramKiB := ramMB * 1024
+	mac := generateGatewayMAC()
+
+	xml := fmt.Sprintf(`<domain type='kvm'>
+  <name>%s</name>
+  <uuid>%s</uuid>
+  <memory unit='KiB'>%d</memory>
+  <currentMemory unit='KiB'>%d</currentMemory>
+  <vcpu placement='static'>%d</vcpu>
+  <os>
+    <type arch='x86_64' machine='pc-q35-8.2'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <cpu mode='custom' match='exact' check='full'>
+    <model fallback='forbid'>qemu64</model>
+    <feature policy='require' name='x2apic'/>
+    <feature policy='require' name='hypervisor'/>
+    <feature policy='require' name='lahf_lm'/>
+    <feature policy='disable' name='svm'/>
+  </cpu>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap' detect_zeroes='unmap'/>
+      <source file='%s'/>
+      <target dev='vda' bus='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+    </disk>
+    <controller type='usb' index='0' model='qemu-xhci'>
+      <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
+    </controller>
+    <controller type='sata' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    </controller>
+    <controller type='pci' index='0' model='pcie-root'/>
+    <controller type='pci' index='1' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='1' port='0x10'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x0' multifunction='on'/>
+    </controller>
+    <controller type='pci' index='2' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='2' port='0x11'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x1'/>
+    </controller>
+    <controller type='pci' index='3' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='3' port='0x12'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x2'/>
+    </controller>
+    <controller type='pci' index='4' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='4' port='0x13'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x3'/>
+    </controller>
+    <controller type='pci' index='5' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='5' port='0x14'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x4'/>
+    </controller>
+    <interface type='bridge'>
+      <mac address='%s'/>
+      <source bridge='br-ovs'/>
+      <model type='virtio'/>
+      <virtualport type='openvswitch'/>
+      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+    </interface>
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'>
+      <listen type='address' address='127.0.0.1'/>
+    </graphics>
+    <audio id='1' type='none'/>
+    <video>
+      <model type='cirrus' vram='16384' heads='1' primary='yes'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x0'/>
+    </video>
+    <watchdog model='itco' action='reset'/>
+    <memballoon model='virtio'/>
+  </devices>
+</domain>`, vmName, uuid, ramKiB, ramKiB, vcpus, targetDiskPath, mac)
+
+	// 上传 XML 并 virsh define。
+	if _, err := sshExecViaGateway(ssh, "cat", ">", "/tmp/qvm-p2v-define.xml", "<<'QVMEOF'\n"+xml+"\nQVMEOF"); err != nil {
+		return fmt.Errorf("upload xml: %w", err)
+	}
+	out, err := sshExecViaGateway(ssh, "virsh", "define", "/tmp/qvm-p2v-define.xml")
+	if err != nil {
+		return fmt.Errorf("virsh define: %s: %w", out, err)
+	}
+	sshExecViaGateway(ssh, "rm", "-f", "/tmp/qvm-p2v-define.xml")
+	return nil
+}
+
+func generateGatewayUUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func generateGatewayMAC() string {
+	b := make([]byte, 3)
+	rand.Read(b)
+	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", b[0], b[1], b[2])
+}
+
 // P2VRequest 发起 P2V（物理机转虚拟机）迁移的请求参数。
 type P2VRequest struct {
 	SourceHostID   uint       `json:"source_host_id"`
@@ -256,11 +449,18 @@ func (s *MigrationService) RunP2VMigration(ctx context.Context, req P2VRequest, 
 		req.VCPUs = 2
 	}
 
+	// 包装 progress 函数，自动清理控制字符。
+	safeProgress := func(p int, msg string, detail ...json.RawMessage) {
+		if progress != nil {
+			progress(p, sanitizeMessage(msg), detail...)
+		}
+	}
+
 	// 解析目标存储路径。
 	targetDiskPath := req.TargetDiskPath
 	if targetDiskPath == "" && req.TargetSSH != nil {
-		if progress != nil {
-			progress(1, "查询目标存储配置")
+		if safeProgress != nil {
+			safeProgress(1, "查询目标存储配置")
 		}
 		vmDir, err := s.ResolveStorage(ctx, req.SourceHostID, req.TargetSSH)
 		if err != nil {
@@ -277,48 +477,51 @@ func (s *MigrationService) RunP2VMigration(ctx context.Context, req P2VRequest, 
 	outputPath := "/var/lib/kvm-user-storage/p2v-" + req.VMName + ".qcow2"
 
 	// Step 1: 在源主机创建 qcow2 镜像。
-	if progress != nil {
-		progress(3, "创建磁盘镜像")
+	if safeProgress != nil {
+		safeProgress(3, "创建磁盘镜像")
 	}
 	_, err := s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-create-image", map[string]interface{}{
 		"source_disk": req.SourceDisk,
 		"output_path": outputPath,
-	}, progress)
+	}, safeProgress)
 	if err != nil {
 		return "failed", fmt.Errorf("p2v-create-image: %w", err)
 	}
 
 	// Step 2: 传输镜像到目标。
-	if progress != nil {
-		progress(50, "传输磁盘镜像")
+	if safeProgress != nil {
+		safeProgress(50, "传输磁盘镜像")
 	}
 	_, err = s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-pull", map[string]interface{}{
 		"source_path":      outputPath,
 		"target_disk_path": targetDiskPath,
 		"target_ssh":       req.TargetSSH,
 		"cleanup":          true,
-	}, progress)
+	}, safeProgress)
 	if err != nil {
 		return "failed", fmt.Errorf("p2v-pull: %w", err)
 	}
 
-	// Step 3: 在目标主机定义 VM。
-	if progress != nil {
-		progress(90, "定义目标 VM")
+	// Step 3: 在目标主机定义 VM（优先 agent，fallback 网关直接 SSH）。
+	if safeProgress != nil {
+		safeProgress(90, "定义目标 VM")
 	}
-	_, err = s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-define", map[string]interface{}{
+	_, agentErr := s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-define", map[string]interface{}{
 		"vm_name":          req.VMName,
 		"target_disk_path": targetDiskPath,
 		"target_ssh":       req.TargetSSH,
 		"ram_mb":           req.RamMB,
 		"vcpus":            req.VCPUs,
-	}, progress)
-	if err != nil {
-		log.Printf("[p2v] 定义目标 VM 失败: %v", err)
+	}, safeProgress)
+	if agentErr != nil {
+		log.Printf("[p2v] agent p2v-define 失败 (%v)，尝试网关直接 SSH 定义...", agentErr)
+		if sshErr := gatewayDefineP2VMul(req.TargetSSH, req.VMName, targetDiskPath, req.RamMB, req.VCPUs); sshErr != nil {
+			log.Printf("[p2v] 网关 SSH 定义也失败: %v", sshErr)
+		}
 	}
 
-	if progress != nil {
-		progress(100, "P2V 迁移完成")
+	if safeProgress != nil {
+		safeProgress(100, "P2V 迁移完成")
 	}
 	return "done", nil
 }

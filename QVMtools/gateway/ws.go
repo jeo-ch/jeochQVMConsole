@@ -128,7 +128,10 @@ func (m *Manager) HandleConnection(conn *websocket.Conn) {
 				m.mu.Unlock()
 			}
 		case msgTypeHeartbeat:
-			// 心跳仅维持连接，无需额外处理。
+			// 心跳维持连接，同时延长令牌有效期。
+			if c.tokenHash != "" {
+				m.tokens.ExtendToken(c.tokenHash)
+			}
 		}
 	}
 }

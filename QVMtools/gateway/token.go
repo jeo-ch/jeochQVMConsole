@@ -116,6 +116,15 @@ func (s *TokenService) Validate(plain string) (*GatewayToken, error) {
 	return tok, nil
 }
 
+// ExtendToken 通过 tokenHash 延长令牌有效期（心跳续期）。
+func (s *TokenService) ExtendToken(tokenHash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tok, ok := s.tokens[tokenHash]; ok {
+		tok.ExpiresAt = time.Now().Add(s.ttl)
+	}
+}
+
 // cleanupLoop 每分钟清理已过期的令牌。
 func (s *TokenService) cleanupLoop() {
 	ticker := time.NewTicker(1 * time.Minute)

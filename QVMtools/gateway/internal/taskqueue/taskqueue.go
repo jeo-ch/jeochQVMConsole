@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -157,9 +158,11 @@ func processTask(workerID int, taskID uint) {
 
 	ctx := context.Background()
 	progressFn := func(p int, msg string, detail ...json.RawMessage) {
+		// 清理控制字符，防止破坏 JSON 序列化。
+		sanitized := sanitizeProgressMsg(msg)
 		taskStoreMu.Lock()
 		task.Progress = p
-		task.Message = msg
+		task.Message = sanitized
 		if len(detail) > 0 {
 			task.Detail = detail[0]
 		}
@@ -181,4 +184,16 @@ func processTask(workerID int, taskID uint) {
 	task.UpdatedAt = time.Now()
 	taskStoreMu.Unlock()
 	log.Printf("[taskqueue] 任务完成: id=%d status=%s", taskID, task.Status)
+}
+
+// sanitizeProgressMsg 清理进度消息中的控制字符。
+func sanitizeProgressMsg(msg string) string {
+	var b strings.Builder
+	for _, r := range msg {
+		if r == '\n' || r == '\r' || r == '\t' || (r < 32 && r != '\n') || r == 127 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
