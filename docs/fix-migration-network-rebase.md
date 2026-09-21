@@ -52,6 +52,10 @@ backing file: /vm-disks/vmdrmrj6v2.qvmconsole_migration_20260921144257
 | `pullDisk` | 校验和通过后调用 `rebaseRemoteDisk` |
 | `rebaseRemoteDisk` | **新增**：在目标主机执行 `qemu-img rebase -u -b ''` 清除 backing file |
 
+**SSH 参数拆分问题**：`exec.Command("ssh", args...)` 将每个参数独立传递，SSH 收到后用空格拼接发给远端 shell。`bash -c "qemu-img rebase -u -b '' ..."` 中的 `''` 空引号被拆分丢失，导致 rebase 命令静默失败。
+
+解决方案：在源端创建脚本文件，通过 `cmd.Stdin = scriptFile`（stdin 重定向）将内容传给远端 `bash` 执行，绕过参数拼接问题。
+
 ## 验证方法
 
 1. 准备源主机（有 `default` + OVS 网卡）和目标主机（仅有 OVS）
