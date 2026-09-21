@@ -137,3 +137,36 @@ func (h *Handler) ListMigrationTasks(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+// StartP2VMigration 发起 P2V（物理机转虚拟机）迁移。
+// POST /api/gateway/p2v-migrations
+func (h *Handler) StartP2VMigration(c *gin.Context) {
+	var req P2VRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.SourceHostID == 0 || req.TargetHostID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source_host_id and target_host_id are required"})
+		return
+	}
+	if req.TargetSSH == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target_ssh is required"})
+		return
+	}
+	if req.SourceDisk == "" {
+		req.SourceDisk = "/dev/sda"
+	}
+	if req.VMName == "" {
+		req.VMName = "p2v-migrated"
+	}
+
+	createdBy := userIDFromContext(c)
+	task, err := taskqueue.SubmitWithStruct("gateway_p2v_migration", req, createdBy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, MigrationResponse{ID: task.ID, Status: task.Status})
+}

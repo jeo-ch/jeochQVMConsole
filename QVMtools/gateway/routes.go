@@ -21,6 +21,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler) {
 		api.POST("/migrations", h.StartMigration)
 		api.GET("/migrations", h.ListMigrationTasks)
 		api.GET("/migrations/:id", h.GetMigrationStatus)
+		api.POST("/p2v-migrations", h.StartP2VMigration)
 	}
 	// agent 回连端点（一次性令牌走 query）。
 	r.GET("/api/gateway/agent/connect", h.WebSocketHandler)
@@ -44,5 +45,23 @@ func RegisterTaskHandler(mig *MigrationService) {
 		}
 		log.Printf("[migration] starting migration: vm=%s source=%d target=%d", req.VMName, req.SourceHostID, req.TargetHostID)
 		return mig.RunMigration(ctx, req, progress)
+	})
+
+	taskqueue.RegisterHandler("gateway_p2v_migration", func(ctx context.Context, task *model.Task, progress func(int, string, ...json.RawMessage)) (result string, retErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[p2v] PANIC: %v", r)
+				result = "failed"
+				retErr = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		log.Printf("[p2v] handler invoked: task_id=%d params_len=%d", task.ID, len(task.Params))
+		var req P2VRequest
+		if err := json.Unmarshal([]byte(task.Params), &req); err != nil {
+			log.Printf("[p2v] JSON parse error: %v", err)
+			return "failed", err
+		}
+		log.Printf("[p2v] starting P2V migration: disk=%s source=%d target=%d", req.SourceDisk, req.SourceHostID, req.TargetHostID)
+		return mig.RunP2VMigration(ctx, req, progress)
 	})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 )
@@ -224,6 +225,100 @@ func (s *MigrationService) RunMigration(ctx context.Context, req MigrationReques
 	// 清理快照失败不阻断迁移（快照可能已在传输过程中被自动清理）。
 	if err := s.Cleanup(ctx, req.SourceHostID, req.VMName, req.SnapshotName); err != nil {
 		log.Printf("[migration] 清理快照失败（可忽略）: %v", err)
+	}
+	return "done", nil
+}
+
+// P2VRequest 发起 P2V（物理机转虚拟机）迁移的请求参数。
+type P2VRequest struct {
+	SourceHostID   uint       `json:"source_host_id"`
+	TargetHostID   uint       `json:"target_host_id"`
+	SourceDisk     string     `json:"source_disk"`      // 源物理磁盘路径，如 /dev/sda
+	VMName         string     `json:"vm_name"`           // 目标 VM 名称
+	RamMB          int        `json:"ram_mb"`            // 目标 VM 内存（MB）
+	VCPUs          int        `json:"vcpus"`             // 目标 VM CPU 数
+	TargetDiskPath string     `json:"target_disk_path"` // 目标磁盘路径（可选，自动解析）
+	TargetSSH      *TargetSSH `json:"target_ssh"`
+}
+
+// RunP2VMigration 执行 P2V 迁移：创建镜像 → 传输 → 定义 VM。
+func (s *MigrationService) RunP2VMigration(ctx context.Context, req P2VRequest, progress func(int, string, ...json.RawMessage)) (string, error) {
+	if req.SourceDisk == "" {
+		req.SourceDisk = "/dev/sda"
+	}
+	if req.VMName == "" {
+		req.VMName = "p2v-migrated"
+	}
+	if req.RamMB <= 0 {
+		req.RamMB = 4096
+	}
+	if req.VCPUs <= 0 {
+		req.VCPUs = 2
+	}
+
+	// 解析目标存储路径。
+	targetDiskPath := req.TargetDiskPath
+	if targetDiskPath == "" && req.TargetSSH != nil {
+		if progress != nil {
+			progress(1, "查询目标存储配置")
+		}
+		vmDir, err := s.ResolveStorage(ctx, req.SourceHostID, req.TargetSSH)
+		if err != nil {
+			log.Printf("[p2v] 查询目标存储失败，使用默认路径: %v", err)
+			vmDir = "/var/lib/libvirt/images"
+		}
+		targetDiskPath = vmDir + "/" + req.VMName + ".qcow2"
+	}
+	if targetDiskPath == "" {
+		targetDiskPath = "/var/lib/libvirt/images/" + req.VMName + ".qcow2"
+	}
+	req.TargetDiskPath = targetDiskPath
+
+	outputPath := "/var/lib/kvm-user-storage/p2v-" + req.VMName + ".qcow2"
+
+	// Step 1: 在源主机创建 qcow2 镜像。
+	if progress != nil {
+		progress(3, "创建磁盘镜像")
+	}
+	_, err := s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-create-image", map[string]interface{}{
+		"source_disk": req.SourceDisk,
+		"output_path": outputPath,
+	}, progress)
+	if err != nil {
+		return "failed", fmt.Errorf("p2v-create-image: %w", err)
+	}
+
+	// Step 2: 传输镜像到目标。
+	if progress != nil {
+		progress(50, "传输磁盘镜像")
+	}
+	_, err = s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-pull", map[string]interface{}{
+		"source_path":      outputPath,
+		"target_disk_path": targetDiskPath,
+		"target_ssh":       req.TargetSSH,
+		"cleanup":          true,
+	}, progress)
+	if err != nil {
+		return "failed", fmt.Errorf("p2v-pull: %w", err)
+	}
+
+	// Step 3: 在目标主机定义 VM。
+	if progress != nil {
+		progress(90, "定义目标 VM")
+	}
+	_, err = s.manager.DispatchCommand(ctx, req.SourceHostID, "p2v-define", map[string]interface{}{
+		"vm_name":          req.VMName,
+		"target_disk_path": targetDiskPath,
+		"target_ssh":       req.TargetSSH,
+		"ram_mb":           req.RamMB,
+		"vcpus":            req.VCPUs,
+	}, progress)
+	if err != nil {
+		log.Printf("[p2v] 定义目标 VM 失败: %v", err)
+	}
+
+	if progress != nil {
+		progress(100, "P2V 迁移完成")
 	}
 	return "done", nil
 }

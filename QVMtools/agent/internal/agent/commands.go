@@ -68,6 +68,12 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 		return c.runCutover(params, progress)
 	case "cleanup":
 		return c.runCleanup(params, progress)
+	case "p2v-create-image":
+		return c.runP2VCreateImage(params, progress)
+	case "p2v-pull":
+		return c.runP2VPull(params, progress)
+	case "p2v-define":
+		return c.runP2VDefine(params, progress)
 	default:
 		return nil, fmt.Errorf("unknown action: %s", action)
 	}
