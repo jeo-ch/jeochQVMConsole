@@ -317,10 +317,34 @@ func parseSha256(out string) string {
 // rebaseRemoteDisk 在目标主机上清除 qcow2 的 backing file 引用，使镜像可独立启动。
 // 迁移产生的 qcow2 可能引用源端快照作为 backing file，目标端不存在该文件会导致启动失败。
 func rebaseRemoteDisk(tgt TargetSSH, keyFile, diskPath string) error {
-	// 使用 bash -c 执行，避免 exec.Command 参数拆分导致空引号丢失。
-	remoteCmd := fmt.Sprintf("qemu-img rebase -u -b '' -F qcow2 -f qcow2 %s", diskPath)
-	ssh := sshCommand(tgt, keyFile, "bash", "-c", remoteCmd)
-	out, err := ssh.CombinedOutput()
+	// 根本问题：exec.Command 传给 SSH 的多个参数被空格拼接，导致引号/heredoc 全部失效。
+	// 解决方案：在源端创建脚本文件，通过 stdin 重定向传给远端 bash 执行。
+	rawCmd := fmt.Sprintf("qemu-img rebase -u -b '' -F qcow2 -f qcow2 %s", diskPath)
+	tmpScript := "/tmp/.qvm_rebase.sh"
+	if err := os.WriteFile(tmpScript, []byte(rawCmd), 0644); err != nil {
+		return fmt.Errorf("write local script: %w", err)
+	}
+	defer os.Remove(tmpScript)
+
+	// 使用 stdin 重定向（< file）将脚本内容传给远端 bash，避免管道时序问题。
+	sshArgs := buildSSHArgs(tgt, keyFile, "bash")
+	var cmd *exec.Cmd
+	if tgt.AuthMethod == "password" && tgt.Password != "" {
+		cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...)
+		cmd.Env = append(os.Environ(), "SSHPASS="+tgt.Password)
+	} else {
+		cmd = exec.Command("ssh", sshArgs...)
+	}
+
+	// 打开本地脚本作为 SSH 的 stdin。
+	scriptFile, err := os.Open(tmpScript)
+	if err != nil {
+		return fmt.Errorf("open script: %w", err)
+	}
+	defer scriptFile.Close()
+	cmd.Stdin = scriptFile
+
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("qemu-img rebase %s: %w: %s", diskPath, err, stripSSHWarnings(string(out)))
 	}
