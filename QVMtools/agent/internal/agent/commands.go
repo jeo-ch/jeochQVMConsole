@@ -74,6 +74,8 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 		return c.runP2VPull(params, progress)
 	case "p2v-define":
 		return c.runP2VDefine(params, progress)
+	case "p2v-stream":
+		return c.runP2VStream(params, progress)
 	default:
 		return nil, fmt.Errorf("unknown action: %s", action)
 	}

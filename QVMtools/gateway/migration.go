@@ -474,7 +474,7 @@ func (s *MigrationService) RunP2VMigration(ctx context.Context, req P2VRequest, 
 	}
 	req.TargetDiskPath = targetDiskPath
 
-	outputPath := "/var/lib/kvm-user-storage/p2v-" + req.VMName + ".qcow2"
+	outputPath := "/var/lib/kvm-user-storage/" + req.VMName + ".qcow2"
 
 	// Step 1: 在源主机创建 qcow2 镜像。
 	if safeProgress != nil {

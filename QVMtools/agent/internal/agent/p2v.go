@@ -34,6 +34,137 @@ type p2vDefineParams struct {
 	MACAddress     string    `json:"mac_address,omitempty"`
 }
 
+// p2vStreamParams 是 p2v-stream 命令的参数。
+type p2vStreamParams struct {
+	SourceDisk     string    `json:"source_disk"`      // e.g., "/dev/sda"
+	TargetDiskPath string    `json:"target_disk_path"` // 目标落盘路径
+	TargetSSH      TargetSSH `json:"target_ssh"`
+}
+
+// runP2VStream 流式创建镜像并直传目标：qemu-img convert | ssh dd。
+// 跳过本地存储，适用于源主机磁盘空间不足的 P2V 场景。
+func (c *Client) runP2VStream(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
+	var p p2vStreamParams
+	b, _ := json.Marshal(params)
+	if err := json.Unmarshal(b, &p); err != nil {
+		return nil, fmt.Errorf("parse p2v-stream params: %w", err)
+	}
+	if p.SourceDisk == "" || p.TargetSSH.Host == "" || p.TargetDiskPath == "" {
+		return nil, fmt.Errorf("source_disk, target_ssh and target_disk_path are required")
+	}
+
+	// 验证源磁盘存在。
+	progress(0, fmt.Sprintf("验证源磁盘 %s", p.SourceDisk))
+	if !isBlockDevice(p.SourceDisk) {
+		return nil, fmt.Errorf("source disk not found or not a block device: %s", p.SourceDisk)
+	}
+
+	// 获取源磁盘大小（用于进度估算）。
+	diskSize, err := getBlockDeviceSize(p.SourceDisk)
+	if err != nil {
+		return nil, fmt.Errorf("get disk size: %w", err)
+	}
+	log.Printf("[p2v-stream] source: %s, size: %d bytes (%.1f GB)", p.SourceDisk, diskSize, float64(diskSize)/(1024*1024*1024))
+
+	// 源端计算 SHA256（流式传输无法事后校验源文件，需提前计算）。
+	progress(1, "计算源磁盘校验和")
+	// 对块设备无法直接 sha256sum，跳过校验（P2V 场景磁盘正在使用）。
+
+	// 准备 SSH 连接。
+	keyFile, err := prepareSSHKey(p.TargetSSH)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if keyFile != "" {
+			os.Remove(keyFile)
+		}
+	}()
+
+	// 启动传输进度监控（通过查询目标端文件大小）。
+	doneCh := make(chan struct{})
+	if progress != nil && diskSize > 0 {
+		go monitorTransferProgress(p.TargetSSH, keyFile, p.TargetDiskPath, diskSize, progress, doneCh)
+	}
+
+	// 流式管道：qemu-img convert → FIFO → ssh dd of=target。
+	// qemu-img 不支持 stdout 输出，使用命名管道桥接。
+	progress(2, fmt.Sprintf("开始流式传输: %s → %s@%s:%s", p.SourceDisk, p.TargetSSH.User, p.TargetSSH.Host, p.TargetDiskPath))
+
+	fifoPath := "/tmp/.qvm-p2v-fifo-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	// 创建 FIFO。
+	if _, err := runOutput("mkfifo", fifoPath); err != nil {
+		close(doneCh)
+		return nil, fmt.Errorf("mkfifo: %w", err)
+	}
+	defer os.Remove(fifoPath)
+
+	// 启动 qemu-img 写入 FIFO（后台）。
+	qemuCmd := exec.Command("qemu-img", "convert", "-f", "raw", "-O", "qcow2", "-c", p.SourceDisk, fifoPath)
+	var qemuStderr strings.Builder
+	qemuCmd.Stderr = &qemuStderr
+
+	// 启动 cat FIFO → ssh dd（后台）。
+	catCmd := exec.Command("cat", fifoPath)
+	remoteDD := sshCommand(p.TargetSSH, keyFile, "dd", fmt.Sprintf("of=%s", p.TargetDiskPath), "bs=1M", "status=none")
+	var ddStderr strings.Builder
+	remoteDD.Stderr = &ddStderr
+
+	catStdout, err := catCmd.StdoutPipe()
+	if err != nil {
+		close(doneCh)
+		return nil, fmt.Errorf("cat stdout pipe: %w", err)
+	}
+	remoteDD.Stdin = catStdout
+
+	// 启动所有进程。
+	if err := qemuCmd.Start(); err != nil {
+		close(doneCh)
+		return nil, fmt.Errorf("start qemu-img: %w", err)
+	}
+	if err := catCmd.Start(); err != nil {
+		qemuCmd.Process.Kill()
+		qemuCmd.Wait()
+		close(doneCh)
+		return nil, fmt.Errorf("start cat: %w", err)
+	}
+	if err := remoteDD.Start(); err != nil {
+		qemuCmd.Process.Kill()
+		catCmd.Process.Kill()
+		qemuCmd.Wait()
+		catCmd.Wait()
+		close(doneCh)
+		return nil, fmt.Errorf("start ssh dd: %w", err)
+	}
+
+	// 等待所有进程完成。
+	ddErr := remoteDD.Wait()
+	qemuErr := qemuCmd.Wait()
+	catErr := catCmd.Wait()
+	close(doneCh)
+
+	if ddErr != nil {
+		return nil, fmt.Errorf("ssh dd transfer: %w (stderr: %s)", ddErr, strings.TrimSpace(ddStderr.String()))
+	}
+	if qemuErr != nil {
+		return nil, fmt.Errorf("qemu-img convert: %w (stderr: %s)", qemuErr, strings.TrimSpace(qemuStderr.String()))
+	}
+	if catErr != nil {
+		return nil, fmt.Errorf("cat fifo: %w", catErr)
+	}
+
+	// 查询目标端文件大小。
+	targetSize := queryRemoteFileSize(p.TargetSSH, keyFile, p.TargetDiskPath)
+
+	progress(100, fmt.Sprintf("流式传输完成: %.1f GB → %.1f GB",
+		float64(diskSize)/(1024*1024*1024), float64(targetSize)/(1024*1024*1024)))
+
+	return map[string]interface{}{
+		"source_size": diskSize,
+		"target_size": targetSize,
+	}, nil
+}
+
 // runP2VCreateImage 从物理磁盘创建 qcow2 压缩镜像。
 // 使用 qemu-img convert 直接读取块设备并压缩输出，避免中间临时文件。
 func (c *Client) runP2VCreateImage(params map[string]interface{}, progress ProgressFunc) (interface{}, error) {
@@ -46,7 +177,7 @@ func (c *Client) runP2VCreateImage(params map[string]interface{}, progress Progr
 		return nil, fmt.Errorf("source_disk is required")
 	}
 	if p.OutputPath == "" {
-		p.OutputPath = "/var/lib/kvm-user-storage/p2v-disk.qcow2"
+		p.OutputPath = "/var/lib/kvm-user-storage/disk.qcow2"
 	}
 
 	// 验证源磁盘存在。
