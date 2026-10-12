@@ -247,6 +247,134 @@ func sanitizeMessage(msg string) string {
 	return b.String()
 }
 
+// gatewayFixP2VBoot 通过 SSH 在目标主机上修复 P2V 磁盘启动配置（sda → vda）。
+func gatewayFixP2VBoot(ssh *TargetSSH, diskPath string) error {
+	if ssh == nil {
+		return fmt.Errorf("no target SSH credentials")
+	}
+
+	// 生成修复脚本：通过 nbd + LVM 挂载磁盘，修复 XFS 和 GRUB/fstab。
+	fixScript := fmt.Sprintf(`#!/bin/bash
+set -e
+DISK="%s"
+MOUNTPOINT="/tmp/.qvm-p2v-fix-boot"
+NBD_DEV="/dev/nbd0"
+
+# 清理旧进程
+killall qemu-nbd 2>/dev/null || true
+sleep 1
+
+# 移除旧 nbd 设备
+rm -f $NBD_DEV 2>/dev/null || true
+mknod $NBD_DEV b 43 0 2>/dev/null || true
+
+# 清理旧 LVM
+dmsetup remove klas-root 2>/dev/null || true
+dmsetup remove klas-swap 2>/dev/null || true
+rm -rf /dev/klas 2>/dev/null || true
+
+echo "[fix-boot] connecting nbd"
+qemu-nbd --connect=$NBD_DEV "$DISK"
+sleep 3
+
+echo "[fix-boot] scanning partitions"
+partprobe $NBD_DEV 2>/dev/null || true
+sleep 1
+
+echo "[fix-boot] scanning LVM"
+pvscan 2>&1 | grep nbd || true
+vgscan 2>&1 | grep klas || true
+vgchange -ay klas 2>&1 || true
+
+echo "[fix-boot] checking LV"
+ls /dev/klas/ 2>&1 || { echo "no LV found"; exit 1; }
+
+echo "[fix-boot] running xfs_repair"
+xfs_repair /dev/klas/root 2>&1 || true
+xfs_repair -L /dev/klas/root 2>&1 || true
+
+echo "[fix-boot] mounting root"
+mkdir -p $MOUNTPOINT
+if mount -o ro /dev/klas/root $MOUNTPOINT 2>&1; then
+    echo "[fix-boot] mounted successfully"
+else
+    echo "[fix-boot] mount failed, trying norecovery"
+    mount -o ro,norecovery /dev/klas/root $MOUNTPOINT 2>&1 || {
+        echo "[fix-boot] all mount attempts failed"
+        umount $MOUNTPOINT 2>/dev/null || true
+        qemu-nbd --disconnect=$NBD_DEV 2>/dev/null || true
+        exit 1
+    }
+fi
+
+echo "[fix-boot] checking boot config"
+ls $MOUNTPOINT/boot/ 2>&1
+ls $MOUNTPOINT/boot/grub2/ 2>/dev/null || ls $MOUNTPOINT/boot/grub/ 2>/dev/null || echo "no grub dir"
+cat $MOUNTPOINT/etc/fstab 2>&1
+
+# 修复 /etc/fstab（如果引用 /dev/sda）
+if grep -q '/dev/sda' $MOUNTPOINT/etc/fstab 2>/dev/null; then
+    echo "[fix-boot] fixing fstab: sda -> vda"
+    sed -i 's|/dev/sda|/dev/vda|g' $MOUNTPOINT/etc/fstab
+    sed -i 's|/dev/sdb|/dev/vdb|g' $MOUNTPOINT/etc/fstab
+fi
+
+# 修复 GRUB device.map
+GRUB_MAP="$MOUNTPOINT/boot/grub2/device.map"
+if [ -f "$GRUB_MAP" ]; then
+    if grep -q '/dev/sda' "$GRUB_MAP" 2>/dev/null; then
+        echo "[fix-boot] fixing device.map: sda -> vda"
+        sed -i 's|/dev/sda|/dev/vda|g' "$GRUB_MAP"
+        sed -i 's|/dev/sdb|/dev/vdb|g' "$GRUB_MAP"
+    fi
+fi
+
+# 修复 GRUB 配置文件中的设备引用
+for GRUB_CFG in "$MOUNTPOINT/boot/grub2/grub.cfg" "$MOUNTPOINT/boot/grub/grub.cfg"; do
+    if [ -f "$GRUB_CFG" ]; then
+        echo "[fix-boot] checking $GRUB_CFG"
+        if grep -q '/dev/sda' "$GRUB_CFG" 2>/dev/null; then
+            echo "[fix-boot] fixing grub.cfg: sda -> vda"
+            sed -i 's|/dev/sda|/dev/vda|g' "$GRUB_CFG"
+        fi
+    fi
+done
+
+# 修复 /etc/default/grub
+for GRUB_DEF in "$MOUNTPOINT/etc/default/grub" "$MOUNTPOINT/etc/default/grub"; do
+    if [ -f "$GRUB_DEF" ]; then
+        echo "[fix-boot] checking $GRUB_DEF"
+        if grep -q '/dev/sda' "$GRUB_DEF" 2>/dev/null; then
+            echo "[fix-boot] fixing default/grub: sda -> vda"
+            sed -i 's|/dev/sda|/dev/vda|g' "$GRUB_DEF"
+        fi
+    fi
+done
+
+echo "[fix-boot] unmounting"
+umount $MOUNTPOINT 2>/dev/null || guestunmount $MOUNTPOINT 2>/dev/null || true
+
+echo "[fix-boot] disconnecting nbd"
+qemu-nbd --disconnect=$NBD_DEV 2>/dev/null || true
+
+echo "[fix-boot] done"
+`, diskPath)
+
+	// 上传脚本到目标并执行。
+	if _, err := sshExecViaGateway(ssh, "cat", ">", "/tmp/.qvm-p2v-fix-boot.sh", "<<'QVMEOF'\n"+fixScript+"\nQVMEOF"); err != nil {
+		return fmt.Errorf("upload fix script: %w", err)
+	}
+
+	out, err := sshExecViaGateway(ssh, "bash", "/tmp/.qvm-p2v-fix-boot.sh")
+	if err != nil {
+		sshExecViaGateway(ssh, "rm", "-f", "/tmp/.qvm-p2v-fix-boot.sh")
+		return fmt.Errorf("fix boot: %s: %w", out, err)
+	}
+
+	sshExecViaGateway(ssh, "rm", "-f", "/tmp/.qvm-p2v-fix-boot.sh")
+	return nil
+}
+
 // sshExecViaGateway 从网关通过 SSH 在远程主机执行命令。
 func sshExecViaGateway(ssh *TargetSSH, cmdParts ...string) (string, error) {
 	args := buildGatewaySSHArgs(ssh, cmdParts)
@@ -500,6 +628,14 @@ func (s *MigrationService) RunP2VMigration(ctx context.Context, req P2VRequest, 
 	}, safeProgress)
 	if err != nil {
 		return "failed", fmt.Errorf("p2v-pull: %w", err)
+	}
+
+	// Step 2.5: 修复 P2V 磁盘启动配置（sda → vda）。
+	if safeProgress != nil {
+		safeProgress(85, "修复启动配置")
+	}
+	if fixErr := gatewayFixP2VBoot(req.TargetSSH, targetDiskPath); fixErr != nil {
+		log.Printf("[p2v] 修复启动配置失败（可忽略）: %v", fixErr)
 	}
 
 	// Step 3: 在目标主机定义 VM（优先 agent，fallback 网关直接 SSH）。
