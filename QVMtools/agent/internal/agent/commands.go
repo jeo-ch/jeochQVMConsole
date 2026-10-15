@@ -76,8 +76,6 @@ func (c *Client) dispatch(action string, params map[string]interface{}, progress
 		return c.runP2VDefine(params, progress)
 	case "p2v-stream":
 		return c.runP2VStream(params, progress)
-	case "p2v-fix-boot":
-		return c.runP2VFixBoot(params, progress)
 	default:
 		return nil, fmt.Errorf("unknown action: %s", action)
 	}

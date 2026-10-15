@@ -13,6 +13,11 @@
 | Open vSwitch（既有依赖） | `ovs-ofctl`、`ovsdb-client` | 端口安全 OpenFlow 多表、packet meter、Interface packet policing、OVSDB 端口事件与兼容性探测 | `server/service/network/portsecurity/`、`server/service/compatibility/` |
 | iproute2、Open vSwitch、systemd（既有依赖） | `tc`、`ip`、`ovs-vsctl`、`ovs-ofctl`、`systemd-run` | 端口镜像的双向报文复制、veth 注入、OVS 转发和短时自动回滚看门狗 | `server/service/network/portmirror/` |
 | curl / wget（既有下载能力） | `curl`、`wget` | 首次安装当前目录缺少有效兼容性脚本时下载脚本；优先 curl，回退 wget | `install.sh` |
+| qemu-utils（既有依赖） | `qemu-nbd` | P2V 迁移时把已传输的 qcow2 镜像以块设备形式接入目标宿主机，配合 `partprobe` 读取分区表并激活其中的 LVM | `QVMtools/gateway/migration.go`（`gatewayFixP2VBoot`） |
+| libguestfs-tools（P2V 按需） | `guestmount`、`guestunmount`、`virt-filesystems` | P2V 迁移前离线检视来宾磁盘分区结构，用于判定根文件系统位置（裸分区或 LVM 逻辑卷）；缺失时该步骤跳过，不阻断迁移 | `QVMtools/gateway/migration.go`（`gatewayFixP2VBoot`） |
+| lvm2（既有依赖） | `pvscan`、`vgscan`、`vgchange`、`dmsetup` | P2V 迁移前在 nbd 块设备上扫描并激活物理机的 LVM 卷组，以便挂载根逻辑卷 | `QVMtools/gateway/migration.go`（`gatewayFixP2VBoot`） |
+| xfsprogs（既有依赖） | `xfs_repair` | P2V 物理机非正常关机后根卷 XFS 处于 dirty 状态，先修复再挂载 | `QVMtools/gateway/migration.go`（`gatewayFixP2VBoot`） |
+| parted（既有依赖） | `partprobe` | P2V 迁移中 nbd 接入后通知内核重新读取分区表 | `QVMtools/gateway/migration.go`（`gatewayFixP2VBoot`） |
 
 ## Linux 来宾磁盘自动化依赖
 
@@ -42,3 +47,5 @@ Windows 来宾使用系统自带 PowerShell 存储命令，无额外来宾软件
 - 公网 IPv6 功能复用 `iproute2` 与 `iptables` 软件包提供的 `ip`、`ip6tables`，没有新增软件包；上游公网前缀和 IPv6 默认路由属于网络环境条件，不作为面板安装依赖。
 - Linux 来宾公网 IPv6 自动配置复用模板已有的 QEMU Guest Agent、`ip` 与 systemd；Agent 暂未连接时绑定仍保留，后台会在 VM 运行后重试。
 - 部分 ARM 设备与虚拟机的 SMBIOS 不提供内存设备数据，此时后端返回中文说明，前端正常降级展示，不影响其他功能。
+- P2V 迁移启动修复所依赖的 `qemu-nbd`、`partprobe`、`dmsetup`、`xfs_repair` 均复用安装流程已有的 `qemu-utils`、`parted`、`lvm2`、`xfsprogs` 软件包，没有新增系统包；`libguestfs-tools` 目前为 P2V 按需依赖，未写入 `install.sh`，缺失时网关跳过离线检视并记录日志，迁移本身照常完成（代价是磁盘分区结构需人工确认）。若后续决定在安装阶段预装，应加入 `install.sh` 的依赖清单并对 RPM 系做包名映射（`libguestfs-tools`）。
+- P2V 启动修复当前按源机磁盘的卷组名 `klas` 定位根逻辑卷，属已知的硬编码限制，换用不同 LVM 命名的物理机时该步骤会失败（失败仅记录日志，不阻断迁移与 VM 定义）。
