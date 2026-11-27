@@ -620,164 +620,168 @@ else
     warn "跳过后端构建"
 fi
 
-# ==================== 打包发行文件 ====================
-info "打包发行文件..."
+# ==================== 打包发行文件（单一职责：run_packaging）====================
+# 职责边界：release 目录组装（后端/web/install.sh/兼容脚本）+ compat-manifest/versions.conf +
+#         bundled RPM 下载 + tar.gz / SHA256SUMS / MINISIGN / 自解压 .run 生成（打包、发布、校验全收敛于此函数）。
+run_packaging() {
+    # ==================== 打包发行文件 ====================
+    info "打包发行文件..."
 
-# 安全校验：后端二进制必须至少存在一个
-if [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ] && [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
-    error "后端二进制不存在于 ${RELEASE_DIR}/${OUTPUT_NAME}/。\n  若使用 --skip-backend，请确保之前已成功构建且未清空 release 目录。\n  建议：不带 --skip-backend 重新构建。"
-fi
-
-# 复制前端静态文件
-cp -r "$WEB_DIR/dist" "$RELEASE_DIR/${OUTPUT_NAME}/web-dist"
-
-# 复制安装脚本
-cp "$SCRIPT_DIR/install.sh" "$RELEASE_DIR/${OUTPUT_NAME}/"
-chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/install.sh"
-
-# 复制首次安装兼容性实机测试脚本到发行包根目录
-cp "$SCRIPT_DIR/scripts/check-system-compatibility.sh" "$RELEASE_DIR/${OUTPUT_NAME}/"
-chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/check-system-compatibility.sh"
-
-# 设置后端二进制可执行权限
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
-    chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console"
-fi
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
-    chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native"
-fi
-if [ -n "$HIGH_COMPAT_GLIBC_VERSION" ] && [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}" ]; then
-    chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}"
-fi
-
-# ==================== 生成 compat-manifest.json（§5.11.3 / M7.0，install.sh 部署期版本比对用）====================
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt" ]; then
-    NATIVE_MIN=$(tr -d '[:space:]' < "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt")
-else
-    NATIVE_MIN="pending"
-    warn "未检测到 native-glibc.txt，compat-manifest.json 的 native 档 min_glibc 写入 pending（不影响版本检测，仅记录档位口径）"
-fi
-write_compat_manifest "$RELEASE_DIR/${OUTPUT_NAME}/compat-manifest.json" "$NATIVE_MIN"
-write_versions_conf "$RELEASE_DIR/${OUTPUT_NAME}/versions.conf"
-
-# ==================== 下载捆绑的 RPM 包（用于 Kylin/openEuler 等缺少的包）====================
-# A3：捆绑源集中在变量管理，国产系统 el7→el9 迁移时仅需改此处地址
-BUNDLE_EPEL_BASE_AMD64="https://dl.fedoraproject.org/pub/epel/8/Everything/x86_64/Packages"
-BUNDLE_EPEL_BASE_ARM64="https://dl.fedoraproject.org/pub/epel/8/Everything/aarch64/Packages"
-BUNDLE_ALMA_APPSTREAM_AMD64="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os/Packages"
-BUNDLE_ALMA_APPSTREAM_ARM64="https://repo.almalinux.org/almalinux/8/AppStream/aarch64/os/Packages"
-
-info "下载捆绑的 RPM 包..."
-mkdir -p "$RELEASE_DIR/${OUTPUT_NAME}/bundled"
-
-# arp-scan: 在 Kylin/openEuler 默认源中不存在，从 EPEL 获取
-ARP_SCAN_RPM_URL=""
-if [ "$TARGET_ARCH" = "amd64" ]; then
-    ARP_SCAN_RPM_URL="${BUNDLE_EPEL_BASE_AMD64}/a/arp-scan-1.10.0-1.el8.x86_64.rpm"
-elif [ "$TARGET_ARCH" = "arm64" ]; then
-    ARP_SCAN_RPM_URL="${BUNDLE_EPEL_BASE_ARM64}/a/arp-scan-1.10.0-1.el8.aarch64.rpm"
-fi
-
-if [ -n "$ARP_SCAN_RPM_URL" ]; then
-    if curl -fL --connect-timeout 10 "$ARP_SCAN_RPM_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/arp-scan.rpm" 2>/dev/null; then
-        success "arp-scan RPM 下载完成"
-    else
-        warn "arp-scan RPM 下载失败，该功能将在系统中不可用时跳过（不影响核心功能）"
+    # 安全校验：后端二进制必须至少存在一个
+    if [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ] && [ ! -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
+        error "后端二进制不存在于 ${RELEASE_DIR}/${OUTPUT_NAME}/。\n  若使用 --skip-backend，请确保之前已成功构建且未清空 release 目录。\n  建议：不带 --skip-backend 重新构建。"
     fi
-fi
 
-# libguestfs-tools-c: 包含 virt-filesystems、virt-customize 等 C 工具
-# 在 Kylin 上 guestfs-tools 包可能因依赖不足安装失败，从 AlmaLinux 8 AppStream 预取
-LIBGUESTFS_TOOLS_C_URL=""
-if [ "$TARGET_ARCH" = "amd64" ]; then
-    LIBGUESTFS_TOOLS_C_URL="${BUNDLE_ALMA_APPSTREAM_AMD64}/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.x86_64.rpm"
-elif [ "$TARGET_ARCH" = "arm64" ]; then
-    LIBGUESTFS_TOOLS_C_URL="${BUNDLE_ALMA_APPSTREAM_ARM64}/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.aarch64.rpm"
-fi
+    # 复制前端静态文件
+    cp -r "$WEB_DIR/dist" "$RELEASE_DIR/${OUTPUT_NAME}/web-dist"
 
-if [ -n "$LIBGUESTFS_TOOLS_C_URL" ]; then
-    if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_C_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools-c.rpm" 2>/dev/null; then
-        success "libguestfs-tools-c RPM 下载完成"
-    else
-        warn "libguestfs-tools-c RPM 下载失败，virt-filesystems/virt-customize 将尝试通过系统源安装"
+    # 复制安装脚本
+    cp "$SCRIPT_DIR/install.sh" "$RELEASE_DIR/${OUTPUT_NAME}/"
+    chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/install.sh"
+
+    # 复制首次安装兼容性实机测试脚本到发行包根目录
+    cp "$SCRIPT_DIR/scripts/check-system-compatibility.sh" "$RELEASE_DIR/${OUTPUT_NAME}/"
+    chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/check-system-compatibility.sh"
+
+    # 设置后端二进制可执行权限
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
+        chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console"
     fi
-fi
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
+        chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native"
+    fi
+    if [ -n "$HIGH_COMPAT_GLIBC_VERSION" ] && [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}" ]; then
+        chmod +x "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}"
+    fi
 
-# libguestfs-tools (noarch): 包含 virt-win-reg 等 Perl 脚本
-# 在 openEuler 上可能为独立子包，安装失败时从捆绑包提取
-LIBGUESTFS_TOOLS_NOARCH_URL="${BUNDLE_ALMA_APPSTREAM_AMD64}/libguestfs-tools-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.noarch.rpm"
-if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_NOARCH_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools.rpm" 2>/dev/null; then
-    success "libguestfs-tools (noarch) RPM 下载完成"
-else
-    warn "libguestfs-tools (noarch) RPM 下载失败，virt-win-reg 将尝试通过系统源安装"
-fi
+    # ==================== 生成 compat-manifest.json（§5.11.3 / M7.0，install.sh 部署期版本比对用）====================
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt" ]; then
+        NATIVE_MIN=$(tr -d '[:space:]' < "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt")
+    else
+        NATIVE_MIN="pending"
+        warn "未检测到 native-glibc.txt，compat-manifest.json 的 native 档 min_glibc 写入 pending（不影响版本检测，仅记录档位口径）"
+    fi
+    write_compat_manifest "$RELEASE_DIR/${OUTPUT_NAME}/compat-manifest.json" "$NATIVE_MIN"
+    write_versions_conf "$RELEASE_DIR/${OUTPUT_NAME}/versions.conf"
 
-# ==================== 生成 tar.gz ====================
-# §14.5 候选④：公钥不在此分发（与官方一致，单一来源）。验签公钥随 install.sh 内嵌为
-# MINISIGN_PUBLIC_KEY，构建侧仅需私钥签名产出 .minisig，不做任何公钥文件探测/拷贝，避免漂移。
+    # ==================== 下载捆绑的 RPM 包（用于 Kylin/openEuler 等缺少的包）====================
+    # A3：捆绑源集中在变量管理，国产系统 el7→el9 迁移时仅需改此处地址
+    BUNDLE_EPEL_BASE_AMD64="https://dl.fedoraproject.org/pub/epel/8/Everything/x86_64/Packages"
+    BUNDLE_EPEL_BASE_ARM64="https://dl.fedoraproject.org/pub/epel/8/Everything/aarch64/Packages"
+    BUNDLE_ALMA_APPSTREAM_AMD64="https://repo.almalinux.org/almalinux/8/AppStream/x86_64/os/Packages"
+    BUNDLE_ALMA_APPSTREAM_ARM64="https://repo.almalinux.org/almalinux/8/AppStream/aarch64/os/Packages"
 
-cd "$RELEASE_DIR"
-tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}/"
+    info "下载捆绑的 RPM 包..."
+    mkdir -p "$RELEASE_DIR/${OUTPUT_NAME}/bundled"
 
-# M8.7/P1-7 包校验：为发行包生成 SHA256SUMS（install.sh extract_tarball 下载后校验完整性）
-# 同时为 release 目录内各二进制生成 sha256（供交付侧人工核对/防篡改）
-cd "$RELEASE_DIR"
-(
-    sha256sum "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
-    cd "${OUTPUT_NAME}"
-    find . -maxdepth 2 -type f \( -name 'kvm-console*' -o -name 'compat-manifest.json' -o -name 'native-glibc.txt' \) -exec sha256sum {} + 2>/dev/null > "../${OUTPUT_NAME}.SHA256SUMS"
-) 2>/dev/null
-success "已生成包校验文件: ${OUTPUT_NAME}.tar.gz.sha256 / ${OUTPUT_NAME}.SHA256SUMS"
+    # arp-scan: 在 Kylin/openEuler 默认源中不存在，从 EPEL 获取
+    ARP_SCAN_RPM_URL=""
+    if [ "$TARGET_ARCH" = "amd64" ]; then
+        ARP_SCAN_RPM_URL="${BUNDLE_EPEL_BASE_AMD64}/a/arp-scan-1.10.0-1.el8.x86_64.rpm"
+    elif [ "$TARGET_ARCH" = "arm64" ]; then
+        ARP_SCAN_RPM_URL="${BUNDLE_EPEL_BASE_ARM64}/a/arp-scan-1.10.0-1.el8.aarch64.rpm"
+    fi
 
-# §14.5 候选④ / M8.7 增强：minisign 离线签名（供应链防篡改）
-# SHA256 仅防传输损坏/偶发篡改；minisign 非对称签名可防有动机的替换攻击。
-# 私钥来源优先级：--minisign-key 参数 > 环境变量 MINISIGN_KEY。均无则跳过（仅 SHA256，不阻断构建）。
-# 公钥随 install.sh 内嵌（MINISIGN_PUBLIC_KEY），install.sh 安装期用内嵌公钥 minisign -V -m 验证，
-# 构建侧不再分发公钥文件（与官方一致）。
-cd "$RELEASE_DIR"
-# §14.5 候选④：环境变量 MINISIGN_KEY 传入的相对路径在 cd 到 release 后失效，兜底转绝对（参数方式已在解析时转换）
-if [ -n "$MINISIGN_KEY" ] && [[ "$MINISIGN_KEY" != /* ]]; then
-    MINISIGN_KEY="$SCRIPT_DIR/$MINISIGN_KEY"
-fi
-if [ -n "$MINISIGN_KEY" ]; then
-    if command -v minisign >/dev/null 2>&1; then
-        if minisign -S -s "$MINISIGN_KEY" -m "${OUTPUT_NAME}.tar.gz" -x "${OUTPUT_NAME}.tar.gz.minisig" >/dev/null 2>&1; then
-            success "已生成 minisign 签名: ${OUTPUT_NAME}.tar.gz.minisig"
+    if [ -n "$ARP_SCAN_RPM_URL" ]; then
+        if curl -fL --connect-timeout 10 "$ARP_SCAN_RPM_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/arp-scan.rpm" 2>/dev/null; then
+            success "arp-scan RPM 下载完成"
         else
-            warn "minisign 签名失败（检查私钥密码/路径），本次发行包仅 SHA256 校验"
+            warn "arp-scan RPM 下载失败，该功能将在系统中不可用时跳过（不影响核心功能）"
+        fi
+    fi
+
+    # libguestfs-tools-c: 包含 virt-filesystems、virt-customize 等 C 工具
+    # 在 Kylin 上 guestfs-tools 包可能因依赖不足安装失败，从 AlmaLinux 8 AppStream 预取
+    LIBGUESTFS_TOOLS_C_URL=""
+    if [ "$TARGET_ARCH" = "amd64" ]; then
+        LIBGUESTFS_TOOLS_C_URL="${BUNDLE_ALMA_APPSTREAM_AMD64}/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.x86_64.rpm"
+    elif [ "$TARGET_ARCH" = "arm64" ]; then
+        LIBGUESTFS_TOOLS_C_URL="${BUNDLE_ALMA_APPSTREAM_ARM64}/libguestfs-tools-c-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.aarch64.rpm"
+    fi
+
+    if [ -n "$LIBGUESTFS_TOOLS_C_URL" ]; then
+        if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_C_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools-c.rpm" 2>/dev/null; then
+            success "libguestfs-tools-c RPM 下载完成"
+        else
+            warn "libguestfs-tools-c RPM 下载失败，virt-filesystems/virt-customize 将尝试通过系统源安装"
+        fi
+    fi
+
+    # libguestfs-tools (noarch): 包含 virt-win-reg 等 Perl 脚本
+    # 在 openEuler 上可能为独立子包，安装失败时从捆绑包提取
+    LIBGUESTFS_TOOLS_NOARCH_URL="${BUNDLE_ALMA_APPSTREAM_AMD64}/libguestfs-tools-1.44.0-9.module_el8.7.0+3493+5ed0bd1c.alma.noarch.rpm"
+    if curl -fL --connect-timeout 10 "$LIBGUESTFS_TOOLS_NOARCH_URL" -o "$RELEASE_DIR/${OUTPUT_NAME}/bundled/libguestfs-tools.rpm" 2>/dev/null; then
+        success "libguestfs-tools (noarch) RPM 下载完成"
+    else
+        warn "libguestfs-tools (noarch) RPM 下载失败，virt-win-reg 将尝试通过系统源安装"
+    fi
+
+    # ==================== 生成 tar.gz ====================
+    # §14.5 候选④：公钥不在此分发（与官方一致，单一来源）。验签公钥随 install.sh 内嵌为
+    # MINISIGN_PUBLIC_KEY，构建侧仅需私钥签名产出 .minisig，不做任何公钥文件探测/拷贝，避免漂移。
+
+    cd "$RELEASE_DIR"
+    tar -czf "${OUTPUT_NAME}.tar.gz" "${OUTPUT_NAME}/"
+
+    # M8.7/P1-7 包校验：为发行包生成 SHA256SUMS（install.sh extract_tarball 下载后校验完整性）
+    # 同时为 release 目录内各二进制生成 sha256（供交付侧人工核对/防篡改）
+    cd "$RELEASE_DIR"
+    (
+        sha256sum "${OUTPUT_NAME}.tar.gz" > "${OUTPUT_NAME}.tar.gz.sha256"
+        cd "${OUTPUT_NAME}"
+        find . -maxdepth 2 -type f \( -name 'kvm-console*' -o -name 'compat-manifest.json' -o -name 'native-glibc.txt' \) -exec sha256sum {} + 2>/dev/null > "../${OUTPUT_NAME}.SHA256SUMS"
+    ) 2>/dev/null
+    success "已生成包校验文件: ${OUTPUT_NAME}.tar.gz.sha256 / ${OUTPUT_NAME}.SHA256SUMS"
+
+    # §14.5 候选④ / M8.7 增强：minisign 离线签名（供应链防篡改）
+    # SHA256 仅防传输损坏/偶发篡改；minisign 非对称签名可防有动机的替换攻击。
+    # 私钥来源优先级：--minisign-key 参数 > 环境变量 MINISIGN_KEY。均无则跳过（仅 SHA256，不阻断构建）。
+    # 公钥随 install.sh 内嵌（MINISIGN_PUBLIC_KEY），install.sh 安装期用内嵌公钥 minisign -V -m 验证，
+    # 构建侧不再分发公钥文件（与官方一致）。
+    cd "$RELEASE_DIR"
+    # §14.5 候选④：环境变量 MINISIGN_KEY 传入的相对路径在 cd 到 release 后失效，兜底转绝对（参数方式已在解析时转换）
+    if [ -n "$MINISIGN_KEY" ] && [[ "$MINISIGN_KEY" != /* ]]; then
+        MINISIGN_KEY="$SCRIPT_DIR/$MINISIGN_KEY"
+    fi
+    if [ -n "$MINISIGN_KEY" ]; then
+        if command -v minisign >/dev/null 2>&1; then
+            if minisign -S -s "$MINISIGN_KEY" -m "${OUTPUT_NAME}.tar.gz" -x "${OUTPUT_NAME}.tar.gz.minisig" >/dev/null 2>&1; then
+                success "已生成 minisign 签名: ${OUTPUT_NAME}.tar.gz.minisig"
+            else
+                warn "minisign 签名失败（检查私钥密码/路径），本次发行包仅 SHA256 校验"
+            fi
+        else
+            warn "未安装 minisign 命令，跳过签名（仅 SHA256 校验）。安装: apt install minisign / dnf install minisign"
         fi
     else
-        warn "未安装 minisign 命令，跳过签名（仅 SHA256 校验）。安装: apt install minisign / dnf install minisign"
+        info "未指定 minisign 私钥（--minisign-key 或 MINISIGN_KEY），跳过签名，仅 SHA256 校验"
     fi
-else
-    info "未指定 minisign 私钥（--minisign-key 或 MINISIGN_KEY），跳过签名，仅 SHA256 校验"
-fi
 
-# ==================== 生成自解压 .run 单文件安装器 ====================
-# §15.0 / 单文件方案：将 tar.gz + .minisig + .sha256 全部内嵌进一个自解压 shell 脚本，
-# 用户只需下载并执行一个文件，引导头自动解压并调用包内 install.sh，
-# 无需额外下载 .minisig / .sha256 / 公钥等旁文件，避免漏下载导致安装失败。
-# 结构：<引导shell> + <PAYLOAD_MARKER 行> + <base64 编码的 tar.gz[;minisig;sha256]>
-generate_selfextract_installer() {
-    local tarball="${OUTPUT_NAME}.tar.gz"
-    local installer="${OUTPUT_NAME}.run"
-    local tarb64 sig_b64 sha_b64 payload marker
+    # ==================== 生成自解压 .run 单文件安装器 ====================
+    # §15.0 / 单文件方案：将 tar.gz + .minisig + .sha256 全部内嵌进一个自解压 shell 脚本，
+    # 用户只需下载并执行一个文件，引导头自动解压并调用包内 install.sh，
+    # 无需额外下载 .minisig / .sha256 / 公钥等旁文件，避免漏下载导致安装失败。
+    # 结构：<引导shell> + <PAYLOAD_MARKER 行> + <base64 编码的 tar.gz[;minisig;sha256]>
+    generate_selfextract_installer() {
+        local tarball="${OUTPUT_NAME}.tar.gz"
+        local installer="${OUTPUT_NAME}.run"
+        local tarb64 sig_b64 sha_b64 payload marker
 
-    tarb64=$(base64 < "$tarball" | tr -d '\n')
-    sig_b64=""
-    if [ -f "$tarball.minisig" ]; then
-        sig_b64=$(base64 < "$tarball.minisig" | tr -d '\n')
-    fi
-    sha_b64=""
-    if [ -f "$tarball.sha256" ]; then
-        sha_b64=$(base64 < "$tarball.sha256" | tr -d '\n')
-    fi
-    payload="${tarb64};${sig_b64};${sha_b64}"
+        tarb64=$(base64 < "$tarball" | tr -d '\n')
+        sig_b64=""
+        if [ -f "$tarball.minisig" ]; then
+            sig_b64=$(base64 < "$tarball.minisig" | tr -d '\n')
+        fi
+        sha_b64=""
+        if [ -f "$tarball.sha256" ]; then
+            sha_b64=$(base64 < "$tarball.sha256" | tr -d '\n')
+        fi
+        payload="${tarb64};${sig_b64};${sha_b64}"
 
-    marker="__QVM_PAYLOAD_MARKER__"
+        marker="__QVM_PAYLOAD_MARKER__"
 
-    # 引导头模板：单引号 heredoc 不做任何展开，占位符 @ARCHIVE_BASENAME@ 由下方 sed 替换
-    cat > "$installer" <<'QVM_SELFEXT_TMPL'
+        # 引导头模板：单引号 heredoc 不做任何展开，占位符 @ARCHIVE_BASENAME@ 由下方 sed 替换
+        cat > "$installer" <<'QVM_SELFEXT_TMPL'
 #!/usr/bin/env bash
 # ============================================================
 #  QVMConsole 自解压安装器（单文件）
@@ -851,58 +855,62 @@ cd "$(dirname "$local_install")" || exit 1
 exec bash "$(basename "$local_install")" "${CALL_ARGS[@]}"
 QVM_SELFEXT_TMPL
 
-    # 替换引导头中的占位符（ARCHIVE_BASENAME 由 OUTPUT_NAME 按架构替换）
-    # 兼容 macOS BSD sed（-i 需后缀）与 GNU/Linux sed（-i 不带后缀）：统一 -i.bak 并清理备份
-    sed -i.bak "s#@ARCHIVE_BASENAME@#${OUTPUT_NAME}#" "$installer" 2>/dev/null || true
-    rm -f "$installer.bak"
+        # 替换引导头中的占位符（ARCHIVE_BASENAME 由 OUTPUT_NAME 按架构替换）
+        # 兼容 macOS BSD sed（-i 需后缀）与 GNU/Linux sed（-i 不带后缀）：统一 -i.bak 并清理备份
+        sed -i.bak "s#@ARCHIVE_BASENAME@#${OUTPUT_NAME}#" "$installer" 2>/dev/null || true
+        rm -f "$installer.bak"
 
-    # 追加 payload 标记行与 base64 payload
-    printf '%s\n' "$marker" >> "$installer"
-    printf '%s\n' "$payload" >> "$installer"
+        # 追加 payload 标记行与 base64 payload
+        printf '%s\n' "$marker" >> "$installer"
+        printf '%s\n' "$payload" >> "$installer"
 
-    # 保证全部写入并设可执行
-    chmod +x "$installer"
-    # 为单文件安装器自身生成 SHA256（供下载后人工核验）
-    sha256sum "$installer" > "$installer.sha256"
-    success "已生成自解压单文件安装器: ${installer}（$(du -h "$installer" | cut -f1)）"
+        # 保证全部写入并设可执行
+        chmod +x "$installer"
+        # 为单文件安装器自身生成 SHA256（供下载后人工核验）
+        sha256sum "$installer" > "$installer.sha256"
+        success "已生成自解压单文件安装器: ${installer}（$(du -h "$installer" | cut -f1)）"
+    }
+
+    generate_selfextract_installer
+
+    PACKAGE_SIZE=$(du -sh "$RELEASE_DIR/${OUTPUT_NAME}.tar.gz" | cut -f1)
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║         构建完成！                               ║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  产物:   ${GREEN}release/${OUTPUT_NAME}.tar.gz${NC}"
+    echo -e "${CYAN}║${NC}          ${GREEN}release/${OUTPUT_NAME}.run（单文件自解压安装器）${NC}"
+    echo -e "${CYAN}║${NC}  大小:   ${GREEN}${PACKAGE_SIZE}${NC}"
+    echo -e "${CYAN}║${NC}  版本:   ${GREEN}${BUILD_VERSION}${NC}"
+    echo -e "${CYAN}║${NC}  架构:   ${GREEN}${TARGET_ARCH}${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  内容:"
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
+        echo -e "${CYAN}║${NC}    - kvm-console        后端二进制（zig 兼容版，GLIBC 上限 ${COMPAT_GLIBC_VERSION}）"
+    fi
+    if [ -n "$HIGH_COMPAT_GLIBC_VERSION" ] && [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}" ]; then
+        echo -e "${CYAN}║${NC}    - kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}  后端二进制（zig 高兼容档，GLIBC 上限 ${HIGH_COMPAT_GLIBC_VERSION}）"
+    fi
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
+        echo -e "${CYAN}║${NC}    - kvm-console-native  后端二进制（宿主机原生版）"
+    fi
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt" ]; then
+        echo -e "${CYAN}║${NC}    - native-glibc.txt  native 版 GLIBC 需求记录（install.sh 选优用）"
+    fi
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/compat-manifest.json" ]; then
+        echo -e "${CYAN}║${NC}    - compat-manifest.json  组件版本兼容性清单（install.sh 检测与面板展示用）"
+    fi
+    echo -e "${CYAN}║${NC}    - web-dist/          前端静态文件"
+    echo -e "${CYAN}║${NC}    - install.sh         安装脚本"
+    echo -e "${CYAN}║${NC}    - check-system-compatibility.sh  首次安装兼容性实机测试"
+    echo -e "${CYAN}║${NC}    - bundled/           捆绑的 RPM 包（用于缺失的系统包）"
+    if [ -f "$RELEASE_DIR/${OUTPUT_NAME}.tar.gz.minisig" ]; then
+        echo -e "${CYAN}║${NC}    - ${OUTPUT_NAME}.tar.gz.minisig  minisign 签名（§14.5 候选④，安装期验证）"
+    fi
+    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
 }
 
-generate_selfextract_installer
+run_packaging
 
-PACKAGE_SIZE=$(du -sh "$RELEASE_DIR/${OUTPUT_NAME}.tar.gz" | cut -f1)
-
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         构建完成！                               ║${NC}"
-echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  产物:   ${GREEN}release/${OUTPUT_NAME}.tar.gz${NC}"
-echo -e "${CYAN}║${NC}          ${GREEN}release/${OUTPUT_NAME}.run（单文件自解压安装器）${NC}"
-echo -e "${CYAN}║${NC}  大小:   ${GREEN}${PACKAGE_SIZE}${NC}"
-echo -e "${CYAN}║${NC}  版本:   ${GREEN}${BUILD_VERSION}${NC}"
-echo -e "${CYAN}║${NC}  架构:   ${GREEN}${TARGET_ARCH}${NC}"
-echo -e "${CYAN}╠══════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  内容:"
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console" ]; then
-    echo -e "${CYAN}║${NC}    - kvm-console        后端二进制（zig 兼容版，GLIBC 上限 ${COMPAT_GLIBC_VERSION}）"
-fi
-if [ -n "$HIGH_COMPAT_GLIBC_VERSION" ] && [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}" ]; then
-    echo -e "${CYAN}║${NC}    - kvm-console-compat-${HIGH_COMPAT_GLIBC_VERSION}  后端二进制（zig 高兼容档，GLIBC 上限 ${HIGH_COMPAT_GLIBC_VERSION}）"
-fi
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/kvm-console-native" ]; then
-    echo -e "${CYAN}║${NC}    - kvm-console-native  后端二进制（宿主机原生版）"
-fi
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/native-glibc.txt" ]; then
-    echo -e "${CYAN}║${NC}    - native-glibc.txt  native 版 GLIBC 需求记录（install.sh 选优用）"
-fi
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}/compat-manifest.json" ]; then
-    echo -e "${CYAN}║${NC}    - compat-manifest.json  组件版本兼容性清单（install.sh 检测与面板展示用）"
-fi
-echo -e "${CYAN}║${NC}    - web-dist/          前端静态文件"
-echo -e "${CYAN}║${NC}    - install.sh         安装脚本"
-echo -e "${CYAN}║${NC}    - check-system-compatibility.sh  首次安装兼容性实机测试"
-echo -e "${CYAN}║${NC}    - bundled/           捆绑的 RPM 包（用于缺失的系统包）"
-if [ -f "$RELEASE_DIR/${OUTPUT_NAME}.tar.gz.minisig" ]; then
-    echo -e "${CYAN}║${NC}    - ${OUTPUT_NAME}.tar.gz.minisig  minisign 签名（§14.5 候选④，安装期验证）"
-fi
-echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
-echo ""

@@ -582,6 +582,10 @@ check_root() {
     fi
 }
 
+# ==================== 国内化发行版支持：openEuler/Kylin/UOS 镜像源 ====================
+# 职责标注：enable_openeuler_repos / apply_*_mirror / backup_system_sources-restore /
+#          restore_system_sources / test_mirror_speed 等国内镜像源相关逻辑集中于此分区。
+#          所有国内源配置（linuxmirrors.cn 镜像结构）必须原样保留，不得回退官方简化版。
 # enable_openeuler_repos 在 openEuler 上启用必要的仓库（EPOL + everything）
 # 现状（openEuler 24.03 SPx 实测）：系统自带 openEuler.repo 已默认启用
 # [everything]/[EPOL]/[update]（含 metalink），路径带 SP 后缀
@@ -1840,6 +1844,9 @@ configure_libvirt_nonroot() {
     success "libvirt 非 root 用户配置完成"
 }
 
+# ==================== SELinux 运行时存储镜像打标 ====================
+# 职责标注：apply_storage_selinux_label / setup_selinux（openEuler/Kylin 国产系统 Enforcing 场景）。
+# ====================
 # apply_storage_selinux_label 对用户存储/镜像目录补建 fcontext 规则并 restorecon 打标。
 # setup_selinux(STEP5) 运行时存储镜像尚未挂载/写入，restorecon 对后续新增文件无效，
 # 故 setup_quota(STEP7) 挂载成功后再调用一次，确保 admin 等已有文件获得 svirt_image_t。
@@ -2653,6 +2660,10 @@ EOF
     sysctl -p /etc/sysctl.d/99-kvm-console-network.conf >/dev/null || true
 }
 
+# ==================== firewalld / OVS / dnsmasq 网络端口释放 ====================
+# 职责标注：firewalld_bind_bridge_trusted / cleanup_dnsmasq_iptables_rules / cleanup_firewalld_zones /
+#          _free_ovs_dnsmasq_port / detect_firewall_backend / open_frontend_port 等网络安全策略逻辑。
+# ====================
 # #F：firewalld 后端时用 trusted zone 绑定网桥放行 dnsmasq 入站（UDP 67/53、TCP 53），
 # 不再写 iptables INPUT 规则（nftables 后端下 firewalld 链先于 iptables 求值，直写会失效或冲突）。
 firewalld_bind_bridge_trusted() {
@@ -3393,6 +3404,10 @@ check_component_versions() {
     success "========================================================="
 }
 
+# ==================== 发行版二进制档位 / 签名 / 发布回滚 ====================
+# 职责标注：select_binary_tier / select_binary_smoke_test / verify_minisign_signature /
+#          backup_previous_release / rollback_release / print_install_report 等发布运维链路。
+# ====================
 # select_binary_tier 选优二进制档位（§4.3/§5.8，#M 非交互覆盖 + 冒烟测试）
 # 必须放在 get_release 之后：需确认发布包内实际存在哪些档位。
 select_binary_tier() {
