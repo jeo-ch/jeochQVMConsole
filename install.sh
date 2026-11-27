@@ -128,7 +128,7 @@ COMPATIBILITY_CHECK_STATUS=0
 COMPATIBILITY_INTERRUPTED=0
 # §14.5 候选④：minisign 公钥（发行方随 install.sh 内嵌分发，用于安装期验签；单一来源，不做公钥文件探测）
 # 完整公钥文本（untrusted comment 行 + base64）作为字符串内嵌；写临时文件后供 minisign -V -m 使用。
-# 对应私钥由发行方离线保管（不入库），更换需按 docs/GCHSJ/minisign-publishing.md 轮换。
+# 对应私钥由发行方离线保管（不入库），更换需由发行方保管流程执行并重新发布。
 MINISIGN_PUBLIC_KEY="${MINISIGN_PUBLIC_KEY:-"untrusted comment: minisign public key F605F4243FA08760
 RWRgh6A/JPQF9pcbwfp+pBgy4JHpuZTa2etSqEuKLO5wuxXutDGl9bQs"}"
 # P1-4：安装状态持久化（§5.8，#V 竞品差异 P1-4；对齐 HCI vmp.pkg 阶段状态设计）
