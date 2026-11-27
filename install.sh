@@ -285,6 +285,14 @@ PKG_MGR=""
 # 发行版 ID（detect_pkg_manager 填充，供 test_mirror_speed/apply_rpm_mirror 等按发行版分支）
 OS_ID=""
 
+# ==================== 共享工具函数库（单一实现，build.sh 打包/校验侧同源）====================
+# version_lt <a> <b>：判断语义化版本 a < b（sort -V 比较，仅此一处实现）
+version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+# version_ge <a> <b>：判断语义化版本 a >= b（内部复用 version_lt，单一实现）
+version_ge() { if [ "$1" = "$2" ]; then return 0; fi; ! version_lt "$1" "$2"; }
+# sha256_of_file <file>：输出文件 sha256 hex（单一实现，替代散落的 sha256sum|awk 调用）
+sha256_of_file() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+
 # ==================== 包管理器辅助函数 ====================
 
 # detect_pkg_manager 检测当前系统的包管理器 (apt/dnf/yum)
@@ -3153,7 +3161,7 @@ check_component_versions() {
     fi
 
     # ── 检测工具函数 ──
-    version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+    # version_lt / version_ge / sha256_of_file 已由上方「共享工具函数库」单一实现提供，此处不再重复定义。
 
     # L2 批量缺失短路：一次循环用 command -v 统一探测所有检测命令，缺失命令不再逐个走 timeout 探针，
     # 避免串行检测在命令缺失/挂起时逼近 60×5s 上界。结果入 PRESENT_CMDS，cmd_version 优先查表、未覆盖再现场探测。
@@ -3442,7 +3450,7 @@ select_binary_tier() {
     # 供 print_install_report 输出「当前 glibc 已满足 native，可考虑重装启用」提示。
     NATIVE_FEASIBLE=""
     if [ -f "${RELEASE_SOURCE_DIR}/kvm-console-native" ] && [ -n "$NATIVE_GLIBC_REQUIRED" ] \
-        && [ "$(printf '%s\n%s\n' "$NATIVE_GLIBC_REQUIRED" "$glibc_ver" | sort -V | tail -n 1)" = "$glibc_ver" ] \
+        && version_ge "$NATIVE_GLIBC_REQUIRED" "$glibc_ver" \
         && { [ "$ARCH" != "x86_64" ] || [ "$avx2_supported" = true ]; }; then
         NATIVE_FEASIBLE="1"
     fi
@@ -3457,7 +3465,7 @@ select_binary_tier() {
             ver="${f##*kvm-console-compat-}"
             if echo "$ver" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
                 if [ -z "$HIGH_COMPAT_VER" ] \
-                    || [ "$(printf '%s\n%s\n' "$HIGH_COMPAT_VER" "$ver" | sort -V | tail -n 1)" = "$ver" ]; then
+                    || version_ge "$HIGH_COMPAT_VER" "$ver"; then
                     HIGH_COMPAT_VER="$ver"
                 fi
             fi
@@ -3500,7 +3508,7 @@ select_binary_tier() {
     if [ "$NATIVE_FEASIBLE" = "1" ]; then
         recommended="native"
     elif [ -n "$HIGH_COMPAT_VER" ] \
-        && [ "$(printf '%s\n%s\n' "$HIGH_COMPAT_VER" "$glibc_ver" | sort -V | tail -n 1)" = "$glibc_ver" ]; then
+        && version_ge "$HIGH_COMPAT_VER" "$glibc_ver"; then
         recommended="compat-${HIGH_COMPAT_VER}"
     fi
 
@@ -3598,7 +3606,7 @@ extract_tarball() {
     local expected_sha="" actual_sha=""
     expected_sha=$(awk '{print $1}' "${tarball_path}.sha256" 2>/dev/null) || true
     if [ -n "$expected_sha" ]; then
-        actual_sha=$(sha256sum "$tarball_path" 2>/dev/null | awk '{print $1}') || true
+        actual_sha=$(sha256_of_file "$tarball_path") || true
         if [ -n "$actual_sha" ] && [ "$actual_sha" != "$expected_sha" ]; then
             error "发行包 SHA256 校验失败（期望 ${expected_sha}，实际 ${actual_sha}），已中止安装"
             exit 1
@@ -3696,7 +3704,7 @@ get_release() {
         fi
         if [[ "$use_local" =~ ^[Yy]$ ]]; then
             # M8.7/P1-7：本地包旁若带 .tar.gz.sha256 校验文件，extract_tarball 会一并校验
-            state_set "release_sha256" "$(sha256sum "$local_tarball" 2>/dev/null | awk '{print $1}')"
+            state_set "release_sha256" "$(sha256_of_file "$local_tarball")"
             extract_tarball "$local_tarball"
             return
         fi
@@ -3724,7 +3732,7 @@ get_release() {
         curl -fsSL -o "${tarball_path}.minisig" "${download_url}.minisig" 2>/dev/null || rm -f "${tarball_path}.minisig"
     fi
     extract_tarball "$tarball_path"
-    state_set "release_sha256" "$(sha256sum "$tarball_path" 2>/dev/null | awk '{print $1}')"
+    state_set "release_sha256" "$(sha256_of_file "$tarball")"
 }
 
 install_files() {
@@ -4786,7 +4794,7 @@ print_install_report() {
     fi
     if [ -n "${NATIVE_GLIBC_REQUIRED:-}" ] && [ -n "${DETECTED_GLIBC_VER:-}" ] \
         && [ "${KVM_BINARY_TIER:-compat}" != "native" ] \
-        && [ "$(printf '%s\n%s\n' "$DETECTED_GLIBC_VER" "$NATIVE_GLIBC_REQUIRED" | sort -V | head -n1)" = "$DETECTED_GLIBC_VER" ] \
+        && version_ge "$DETECTED_GLIBC_VER" "$NATIVE_GLIBC_REQUIRED" \
         && [ "$DETECTED_GLIBC_VER" != "$NATIVE_GLIBC_REQUIRED" ]; then
         info "升级提示: glibc ${DETECTED_GLIBC_VER} 未达 native 需求 ${NATIVE_GLIBC_REQUIRED}，当前使用 ${KVM_BINARY_TIER} 档；升级 glibc 可启用 native 档"
     fi
